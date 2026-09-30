@@ -5,7 +5,7 @@
 #   - Debian / Ubuntu            (apt)
 #   - RHEL family incl. Oracle Linux, Rocky, Alma, CentOS, Fedora (dnf/yum)
 #
-# Adapted from https://github.com/LawrenceHe/setup-vps/blob/main/run.sh
+# Adapted from https://github.com/LawrenceHe/fast-setup/blob/main/run.sh
 set -Eeuo pipefail
 
 MAVEN_VERSION="3.9.9"

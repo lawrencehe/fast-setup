@@ -1,4 +1,4 @@
-# setup-vps
+# fast-setup
 
 One-command development environment setup for Linux VPS. It works on both
 **Debian-family** and **RHEL-family** distributions, on **amd64** and **arm64**.
@@ -6,14 +6,14 @@ One-command development environment setup for Linux VPS. It works on both
 ## Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LawrenceHe/setup-vps/main/run.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LawrenceHe/fast-setup/main/run.sh | bash
 ```
 
 Or clone and run locally:
 
 ```bash
-git clone https://github.com/LawrenceHe/setup-vps.git
-cd setup-vps
+git clone https://github.com/LawrenceHe/fast-setup.git
+cd fast-setup
 ./run.sh
 ```
 
