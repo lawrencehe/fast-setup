@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+#
+# Cross-distro development environment setup.
+# Supports:
+#   - Debian / Ubuntu            (apt)
+#   - RHEL family incl. Oracle Linux, Rocky, Alma, CentOS, Fedora (dnf/yum)
+#
+# Adapted from https://github.com/LawrenceHe/setup-vps/blob/main/run.sh
 set -Eeuo pipefail
 
 MAVEN_VERSION="3.9.9"
@@ -6,39 +13,253 @@ export DEBIAN_FRONTEND=noninteractive
 
 log(){ printf '\n==> %s\n' "$*"; }
 ok(){ printf '✓ %s\n' "$*"; }
+warn(){ printf '⚠ %s\n' "$*" >&2; }
 die(){ printf '✗ %s\n' "$*" >&2; exit 1; }
 trap 'printf "✗ Failed at line %s\n" "$LINENO" >&2' ERR
 
-[[ $EUID -ne 0 ]] || die "Run as a normal Ubuntu user with sudo privileges."
-source /etc/os-release
-[[ "${ID:-}" == ubuntu ]] || die "Ubuntu only."
+[[ $EUID -ne 0 ]] || die "Run as a normal user with sudo privileges."
 
+if [[ -r /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  source /etc/os-release
+fi
+
+# ---------------------------------------------------------------------------
+# Package manager detection
+# ---------------------------------------------------------------------------
+if command -v apt-get >/dev/null 2>&1; then
+  PM=apt
+elif command -v dnf >/dev/null 2>&1; then
+  PM=dnf
+elif command -v yum >/dev/null 2>&1; then
+  PM=yum
+else
+  die "Unsupported distribution: no apt-get/dnf/yum found. This script targets Debian/Ubuntu and RHEL-family systems."
+fi
+
+# ---------------------------------------------------------------------------
+# Architecture
+# ---------------------------------------------------------------------------
 case "$(uname -m)" in
   x86_64) ARCH=amd64; LG_ARCH=x86_64 ;;
   aarch64|arm64) ARCH=arm64; LG_ARCH=arm64 ;;
   *) die "Unsupported architecture: $(uname -m)" ;;
 esac
 
-# sudo -v 在 sudo-rs（Ubuntu 26.04 默认）下只要命中任何一条非 NOPASSWD 规则（如 %sudo）就要密码，
-# 而云主机默认用户没有密码；先试免密，失败再交互。
+# sudo -v under sudo-rs may demand a password when any non-NOPASSWD rule matches;
+# try non-interactive first, then fall back to interactive.
 sudo -n true 2>/dev/null || sudo -v || die "sudo is not usable for $(id -un)."
-log "Ubuntu: ${PRETTY_NAME}; architecture: ${ARCH}"
-sudo apt-get update -y
+log "Distro: ${PRETTY_NAME:-${ID:-unknown}} (PM: ${PM}); architecture: ${ARCH}"
 
-apt_pkg() {
-  local p="$1"
-  if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then
-    sudo apt-get install -y --only-upgrade "$p"
-  else
-    sudo apt-get install -y "$p"
-  fi
+# ---------------------------------------------------------------------------
+# Package helpers
+# ---------------------------------------------------------------------------
+pm_install() {
+  case "$PM" in
+    apt)
+      local p
+      for p in "$@"; do
+        if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then
+          sudo apt-get install -y --only-upgrade "$p"
+        else
+          sudo apt-get install -y "$p"
+        fi
+      done
+      ;;
+    dnf|yum)
+      sudo "$PM" -y install "$@"
+      ;;
+  esac
 }
 
-log "Base packages"
-for p in ca-certificates curl wget unzip zip tar gzip xz-utils gnupg jq rsync lsof build-essential ncurses-bin git tmux mosh openjdk-21-jdk mysql-client postgresql-client neovim btop; do
-  apt_pkg "$p"
-done
+pm_try() {
+  case "$PM" in
+    apt) sudo apt-get install -y "$@" ;;
+    dnf|yum) sudo "$PM" -y install "$@" ;;
+  esac
+}
 
+pm_try_each() {
+  local rc=0 p
+  for p in "$@"; do
+    if ! pm_try "$p" >/dev/null 2>&1; then
+      warn "could not install ${p}"
+      rc=1
+    fi
+  done
+  return $rc
+}
+
+repo_add() {
+  local url="$1"
+  case "$PM" in
+    dnf)
+      if command -v dnf5 >/dev/null 2>&1; then
+        sudo dnf5 config-manager addrepo --overwrite --save-filename=docker-ce.repo --from-repofile="$url"
+      else
+        pm_try dnf-plugins-core >/dev/null 2>&1 || true
+        sudo dnf config-manager --add-repo "$url"
+      fi
+      ;;
+    yum)
+      pm_try yum-utils >/dev/null 2>&1 || true
+      sudo yum-config-manager --add-repo "$url"
+      ;;
+  esac
+  sudo "$PM" -y makecache || true
+}
+
+repo_enable() {
+  local repo="$1"
+  case "$PM" in
+    dnf)
+      sudo dnf repolist --all 2>/dev/null | grep -qE "^[[:space:]]*${repo}[[:space:]]" || return 0
+      if command -v dnf5 >/dev/null 2>&1; then
+        sudo dnf5 config-manager setopt "${repo}.enabled=1" || warn "could not enable ${repo} (best effort)"
+      else
+        pm_try dnf-plugins-core >/dev/null 2>&1 || true
+        sudo dnf config-manager --set-enabled "$repo" || warn "could not enable ${repo} (best effort)"
+      fi
+      sudo dnf -y makecache || true
+      ;;
+    yum)
+      sudo yum repolist all 2>/dev/null | grep -qE "^[[:space:]]*${repo}[[:space:]]" || return 0
+      pm_try yum-utils >/dev/null 2>&1 || true
+      sudo yum-config-manager --set-enabled "$repo" || warn "could not enable ${repo} (best effort)"
+      sudo yum -y makecache || true
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Repositories (EPEL + CodeReady Builder for RHEL-family)
+# ---------------------------------------------------------------------------
+enable_crb() {
+  local major="${VERSION_ID:-0}"
+  major="${major%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] || major=0
+  local repo=""
+  case "${ID:-}" in
+    ol) repo="ol${major}_codeready_builder" ;;
+    rhel) repo="codeready-builder-for-rhel-${major}-$(uname -m)-rpms" ;;
+    rocky|almalinux|cloudlinux|eurolinux|virtuozzo)
+      if (( major >= 9 )); then repo="crb"; else repo="powertools"; fi ;;
+    centos)
+      if (( major >= 9 )); then repo="crb"; else repo="powertools"; fi ;;
+  esac
+  [[ -n "$repo" ]] && repo_enable "$repo"
+}
+
+enable_epel() {
+  local major="${VERSION_ID:-0}"
+  major="${major%%.*}"
+  [[ "$major" =~ ^[0-9]+$ ]] || major=0
+  case "${ID:-}" in
+    fedora|amzn) return 0 ;;  # Fedora ships these natively; Amazon Linux has its own repos
+    ol)
+      pm_install "oracle-epel-release-el${major}"
+      repo_enable "ol${major}_developer_EPEL"
+      ;;
+    rhel|centos|rocky|almalinux|cloudlinux|eurolinux|virtuozzo)
+      pm_install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${major}.noarch.rpm"
+      ;;
+    *)
+      warn "EPEL: unknown RHEL-family ID '${ID:-}'; trying Fedora EPEL ${major} best-effort."
+      pm_try "https://dl.fedoraproject.org/pub/epel/epel-release-latest-${major}.noarch.rpm" || true
+      ;;
+  esac
+  sudo "$PM" -y makecache || true
+}
+
+setup_repos() {
+  case "$PM" in
+    apt)
+      sudo apt-get update -y
+      ;;
+    dnf|yum)
+      sudo "$PM" -y makecache || true
+      case "${ID:-}" in
+        fedora) : ;;
+        *) enable_crb; enable_epel ;;
+      esac
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Base packages: required (fatal) vs optional (best-effort)
+# ---------------------------------------------------------------------------
+case "$PM" in
+  apt)
+    REQUIRED_PKGS=(ca-certificates curl tar gzip gnupg jq ncurses-bin)
+    OPTIONAL_PKGS=(wget unzip zip xz-utils rsync lsof build-essential git tmux mosh \
+      postgresql-client neovim btop)
+    ;;
+  dnf)
+    REQUIRED_PKGS=(ca-certificates curl tar gzip gnupg2 jq ncurses)
+    OPTIONAL_PKGS=(wget unzip zip xz rsync lsof gcc gcc-c++ make git tmux mosh \
+      postgresql neovim btop)
+    ;;
+  yum)
+    # EL7: no btop
+    REQUIRED_PKGS=(ca-certificates curl tar gzip gnupg2 jq ncurses)
+    OPTIONAL_PKGS=(wget unzip zip xz rsync lsof gcc gcc-c++ make git tmux mosh \
+      postgresql neovim)
+    ;;
+esac
+
+log "Package repositories"
+setup_repos
+
+log "Required base packages"
+pm_install "${REQUIRED_PKGS[@]}"
+
+log "Optional developer packages"
+if ! pm_try "${OPTIONAL_PKGS[@]}" >/dev/null 2>&1; then
+  warn "Some optional packages are unavailable as a group; installing individually."
+  pm_try_each "${OPTIONAL_PKGS[@]}" || warn "Some optional packages could not be installed."
+fi
+
+# MySQL/MariaDB client (package name varies by distro)
+log "MySQL/MariaDB client"
+case "$PM" in
+  apt)
+    pm_try mysql-client || pm_try default-mysql-client || warn "no MySQL client package found"
+    ;;
+  dnf)
+    if [[ "${ID:-}" == fedora ]]; then
+      pm_try community-mysql || warn "no MySQL client package found"
+    else
+      pm_try mysql || warn "no MySQL client package found"
+    fi
+    ;;
+  yum)
+    pm_try mysql || warn "no MySQL client package found"
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Java (21 preferred, graceful fallback)
+# ---------------------------------------------------------------------------
+log "Java (OpenJDK)"
+case "$PM" in
+  apt)
+    pm_install openjdk-21-jdk || {
+      warn "openjdk-21-jdk unavailable; falling back to openjdk-17-jdk."
+      pm_try openjdk-17-jdk || pm_try openjdk-11-jdk || die "No OpenJDK package could be installed."
+    }
+    ;;
+  dnf|yum)
+    pm_install java-21-openjdk-devel || {
+      warn "java-21-openjdk-devel unavailable; falling back to java-17-openjdk-devel."
+      pm_try java-17-openjdk-devel || pm_try java-11-openjdk-devel || die "No OpenJDK package could be installed."
+    }
+    ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Maven
+# ---------------------------------------------------------------------------
 log "Maven ${MAVEN_VERSION}"
 CURRENT_MAVEN="$(mvn -version 2>/dev/null | head -1 | awk '{print $3}' || true)"
 if [[ "$CURRENT_MAVEN" != "$MAVEN_VERSION" ]]; then
@@ -53,9 +274,12 @@ else
   ok "Maven already ${MAVEN_VERSION}"
 fi
 
+# ---------------------------------------------------------------------------
+# uv + latest stable Python
+# ---------------------------------------------------------------------------
 log "uv + latest stable Python"
 export PATH="$HOME/.local/bin:$PATH"
-if command -v uv >/dev/null; then
+if command -v uv >/dev/null 2>&1; then
   uv self update || true
 else
   curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -63,15 +287,18 @@ else
 fi
 uv python install --default
 
+# ---------------------------------------------------------------------------
+# nvm + latest Node.js LTS
+# ---------------------------------------------------------------------------
 log "nvm + latest Node.js LTS"
 export NVM_DIR="$HOME/.nvm"
 if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
-  NVM_VERSION="$(git ls-remote --tags --refs https://github.com/nvm-sh/nvm.git | awk -F/ '{print $3}' | sort -V | tail -1)"
+  NVM_VERSION="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | jq -r '.tag_name')"
   curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
 fi
 # shellcheck disable=SC1090
 . "$NVM_DIR/nvm.sh"
-# nvm 与 ~/.npmrc 里的 prefix/globalconfig 不兼容（nvm use 直接返回 11）
+# nvm conflicts with prefix/globalconfig in ~/.npmrc (nvm use returns 11)
 if [[ -f "$HOME/.npmrc" ]] && grep -qE '^[[:space:]]*(prefix|globalconfig)[[:space:]]*=' "$HOME/.npmrc"; then
   cp "$HOME/.npmrc" "$HOME/.npmrc.bak.$(date +%s)"
   sed -i -E '/^[[:space:]]*(prefix|globalconfig)[[:space:]]*=/d' "$HOME/.npmrc"
@@ -81,37 +308,64 @@ nvm install --lts
 nvm alias default 'lts/*'
 nvm use default
 
+# ---------------------------------------------------------------------------
+# pi coding agent
+# ---------------------------------------------------------------------------
 log "pi coding agent"
 # https://github.com/earendil-works/pi — installs into the nvm-managed Node
 npm install -g --ignore-scripts @earendil-works/pi-coding-agent
 
+# ---------------------------------------------------------------------------
+# herdr
+# ---------------------------------------------------------------------------
 log "herdr"
 # https://github.com/herdrdev/herdr — official installer, puts the binary in ~/.local/bin
 curl -fsSL https://herdr.dev/install.sh | sh
 
+# ---------------------------------------------------------------------------
+# mosh firewall
+# ---------------------------------------------------------------------------
 log "mosh firewall"
-if command -v ufw >/dev/null && sudo ufw status | grep -q '^Status: active'; then
+if command -v firewall-cmd >/dev/null 2>&1 && sudo firewall-cmd --state 2>/dev/null | grep -q running; then
+  sudo firewall-cmd --permanent --add-port=60000-61000/udp
+  sudo firewall-cmd --reload
+elif command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'; then
   sudo ufw allow 60000:61000/udp
 else
-  ok "ufw not active; if the provider has a cloud firewall, open UDP 60000-61000 for mosh"
+  ok "no local firewall active; if the provider has a cloud firewall, open UDP 60000-61000 for mosh"
 fi
 
+# ---------------------------------------------------------------------------
+# Docker CE
+# ---------------------------------------------------------------------------
 log "Docker CE"
-if command -v docker >/dev/null; then
-  sudo apt-get update -y
-  pkgs=()
-  for p in docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; do
-    apt-cache show "$p" >/dev/null 2>&1 && pkgs+=("$p")
-  done
-  ((${#pkgs[@]})) && sudo apt-get install -y "${pkgs[@]}"
+if command -v docker >/dev/null 2>&1; then
+  ok "docker already installed: $(docker --version 2>/dev/null || true)"
 else
-  curl -fsSL https://get.docker.com | sudo sh
+  case "$PM" in
+    apt)
+      curl -fsSL https://get.docker.com | sudo sh
+      ;;
+    dnf|yum)
+      case "${ID:-}" in
+        fedora) repo_url="https://download.docker.com/linux/fedora/docker-ce.repo" ;;
+        *) repo_url="https://download.docker.com/linux/centos/docker-ce.repo" ;;
+      esac
+      repo_add "$repo_url"
+      pm_install docker-ce docker-ce-cli containerd.io
+      pm_try docker-buildx-plugin || true
+      pm_try docker-compose-plugin || true
+      ;;
+  esac
 fi
-if getent group docker >/dev/null && ! id -nG | tr ' ' '\n' | grep -qx docker; then
+if getent group docker >/dev/null 2>&1 && ! id -nG | tr ' ' '\n' | grep -qx docker; then
   sudo usermod -aG docker "$(id -un)"
   DOCKER_RELOGIN=1
 fi
 
+# ---------------------------------------------------------------------------
+# kubectl latest stable
+# ---------------------------------------------------------------------------
 log "kubectl latest stable"
 KUBE_LATEST="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
 KUBE_CURRENT="$(kubectl version --client -o json 2>/dev/null | jq -r '.clientVersion.gitVersion // empty' || true)"
@@ -126,13 +380,19 @@ else
   ok "kubectl already ${KUBE_LATEST}"
 fi
 
+# ---------------------------------------------------------------------------
+# Alibaba Cloud CLI
+# ---------------------------------------------------------------------------
 log "Alibaba Cloud CLI"
 # Official installer installs/updates the CLI and detects Linux architecture.
-sudo bash -c "$(curl -fsSL https://aliyuncli.alicdn.com/install.sh)"
+curl -fsSL https://aliyuncli.alicdn.com/install.sh | sudo bash
 
+# ---------------------------------------------------------------------------
+# lazygit latest
+# ---------------------------------------------------------------------------
 log "lazygit latest"
 LG_LATEST="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
-LG_CURRENT="$(lazygit --version 2>/dev/null | grep -oE 'version=[^,]+' | cut -d= -f2 || true)"
+LG_CURRENT="$(lazygit --version 2>/dev/null | grep -oE ', version=[^,]+' | cut -d= -f2 || true)"
 if [[ "$LG_CURRENT" != "$LG_LATEST" ]]; then
   tmp="$(mktemp -d)"
   curl -fL "https://github.com/jesseduffield/lazygit/releases/download/v${LG_LATEST}/lazygit_${LG_LATEST}_linux_${LG_ARCH}.tar.gz" -o "$tmp/lazygit.tgz"
@@ -143,6 +403,9 @@ else
   ok "lazygit already ${LG_LATEST}"
 fi
 
+# ---------------------------------------------------------------------------
+# Ghostty terminfo
+# ---------------------------------------------------------------------------
 log "Ghostty terminfo"
 tmp="$(mktemp)"
 cat >"$tmp" <<'TERMINFO'
@@ -233,26 +496,38 @@ rm -f "$tmp"
 infocmp -x xterm-ghostty >/dev/null
 ok "xterm-ghostty installed globally"
 
+# ---------------------------------------------------------------------------
+# Versions
+# ---------------------------------------------------------------------------
+run_ver() {
+  local desc="$1"; shift
+  if command -v "$1" >/dev/null 2>&1; then
+    "$@" 2>&1 | head -1 || true
+  else
+    warn "${desc}: not installed"
+  fi
+}
+
 log "Versions"
-git --version
-java -version 2>&1 | head -1
-mvn -version | head -1
-uv --version
-python3 --version || true
-node --version
-npm --version
-docker --version
-kubectl version --client 2>/dev/null | head -1
-aliyun version 2>/dev/null || true
-mysql --version
-psql --version
-nvim --version | head -1
-lazygit --version
-btop --version | head -1
-tmux -V
-mosh --version 2>&1 | head -1
-pi --version
-herdr --version
+run_ver git git --version
+run_ver java java -version
+run_ver maven mvn -version
+run_ver uv uv --version
+run_ver python3 python3 --version
+run_ver node node --version
+run_ver npm npm --version
+run_ver docker docker --version
+run_ver kubectl kubectl version --client
+run_ver aliyun aliyun version
+run_ver mysql mysql --version
+run_ver psql psql --version
+run_ver nvim nvim --version
+run_ver lazygit lazygit --version
+run_ver btop btop --version
+run_ver tmux tmux -V
+run_ver mosh mosh --version
+run_ver pi pi --version
+run_ver herdr herdr --version
 
 printf '\n✓ VPS setup complete.\n'
 if [[ "${DOCKER_RELOGIN:-0}" == 1 ]]; then
