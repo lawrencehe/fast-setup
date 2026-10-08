@@ -43,7 +43,7 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **Base packages** — `curl`, `wget`, `tar`, `gzip`, `ca-certificates`, `gnupg`,
   `jq`, `ncurses`, `git`, `tmux`, `mosh`, `rsync`, `lsof`, `unzip`/`zip`, `xz`,
   and a build toolchain (`build-essential` or `gcc`/`gcc-c++`/`make`)
-- **zsh** — installed only if not already present (an existing zsh is left untouched)
+- **zsh** — installed if missing, upgraded when an update is available, otherwise left as-is
 - **Database clients** — MySQL/MariaDB client and PostgreSQL client
 - **OpenJDK 21** (falls back to 17, then 11, if 21 is unavailable)
 - **Apache Maven 3.9.9** — installed under `/opt`, symlinked to `/usr/local/bin/mvn`
@@ -68,8 +68,9 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   `tmux`, the database clients and the build toolchain are installed
   best-effort. If one of them is unavailable on an older release, the rest of
   the setup still completes.
-- **Idempotent** — the script can be re-run safely; already-installed tools are
-  kept or upgraded to their configured versions.
+- **Idempotent** — the script can be re-run safely: missing tools are installed,
+  outdated tools are upgraded to the latest available version, and already-latest
+  tools are skipped. Maven is pinned to 3.9.9.
 
 ## Repository layout
 

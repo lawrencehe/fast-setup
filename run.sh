@@ -54,35 +54,47 @@ log "Distro: ${PRETTY_NAME:-${ID:-unknown}} (PM: ${PM}); architecture: ${ARCH}"
 # ---------------------------------------------------------------------------
 # Package helpers
 # ---------------------------------------------------------------------------
+# Install a package if it is missing, upgrade it if it is present, and leave it
+# untouched if it is already the latest available version.
 pm_install() {
+  local rc=0 p
   case "$PM" in
     apt)
-      local p
       for p in "$@"; do
-        if dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed'; then
-          sudo apt-get install -y --only-upgrade "$p"
-        else
-          sudo apt-get install -y "$p"
-        fi
+        sudo apt-get install -y "$p" || rc=1
       done
       ;;
     dnf|yum)
-      sudo "$PM" -y install "$@"
+      for p in "$@"; do
+        case "$p" in
+          http://*|https://*|ftp://*|*.rpm)
+            # A file/URL (e.g. the EPEL release rpm): install it directly.
+            sudo "$PM" -y install "$p" || rc=1
+            ;;
+          *)
+            if rpm -q "$p" >/dev/null 2>&1; then
+              # Present: upgrade to latest (no-op when already latest).
+              sudo "$PM" -y upgrade "$p" || rc=1
+            else
+              # Missing: install the latest available version.
+              sudo "$PM" -y install "$p" || rc=1
+            fi
+            ;;
+        esac
+      done
       ;;
   esac
+  return $rc
 }
 
 pm_try() {
-  case "$PM" in
-    apt) sudo apt-get install -y "$@" ;;
-    dnf|yum) sudo "$PM" -y install "$@" ;;
-  esac
+  pm_install "$@"
 }
 
 pm_try_each() {
   local rc=0 p
   for p in "$@"; do
-    if ! pm_try "$p" >/dev/null 2>&1; then
+    if ! pm_install "$p" >/dev/null 2>&1; then
       warn "could not install ${p}"
       rc=1
     fi
@@ -221,14 +233,10 @@ if ! pm_try "${OPTIONAL_PKGS[@]}" >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------------------
-# zsh (install only if missing; never reinstall or upgrade an existing one)
+# zsh
 # ---------------------------------------------------------------------------
 log "zsh"
-if command -v zsh >/dev/null 2>&1; then
-  ok "zsh already installed: $(zsh --version 2>/dev/null || true)"
-else
-  pm_install zsh || warn "zsh could not be installed (continuing)"
-fi
+pm_install zsh || warn "zsh could not be installed (continuing)"
 
 # MySQL/MariaDB client (package name varies by distro)
 log "MySQL/MariaDB client"
@@ -349,25 +357,21 @@ fi
 # Docker CE
 # ---------------------------------------------------------------------------
 log "Docker CE"
-if command -v docker >/dev/null 2>&1; then
-  ok "docker already installed: $(docker --version 2>/dev/null || true)"
-else
-  case "$PM" in
-    apt)
-      curl -fsSL https://get.docker.com | sudo sh
-      ;;
-    dnf|yum)
-      case "${ID:-}" in
-        fedora) repo_url="https://download.docker.com/linux/fedora/docker-ce.repo" ;;
-        *) repo_url="https://download.docker.com/linux/centos/docker-ce.repo" ;;
-      esac
-      repo_add "$repo_url"
-      pm_install docker-ce docker-ce-cli containerd.io
-      pm_try docker-buildx-plugin || true
-      pm_try docker-compose-plugin || true
-      ;;
-  esac
-fi
+case "$PM" in
+  apt)
+    curl -fsSL https://get.docker.com | sudo sh
+    ;;
+  dnf|yum)
+    case "${ID:-}" in
+      fedora) repo_url="https://download.docker.com/linux/fedora/docker-ce.repo" ;;
+      *) repo_url="https://download.docker.com/linux/centos/docker-ce.repo" ;;
+    esac
+    repo_add "$repo_url"
+    pm_install docker-ce docker-ce-cli containerd.io
+    pm_try docker-buildx-plugin || true
+    pm_try docker-compose-plugin || true
+    ;;
+esac
 if getent group docker >/dev/null 2>&1 && ! id -nG | tr ' ' '\n' | grep -qx docker; then
   sudo usermod -aG docker "$(id -un)"
   DOCKER_RELOGIN=1
