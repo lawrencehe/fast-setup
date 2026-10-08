@@ -220,6 +220,16 @@ if ! pm_try "${OPTIONAL_PKGS[@]}" >/dev/null 2>&1; then
   pm_try_each "${OPTIONAL_PKGS[@]}" || warn "Some optional packages could not be installed."
 fi
 
+# ---------------------------------------------------------------------------
+# zsh (install only if missing; never reinstall or upgrade an existing one)
+# ---------------------------------------------------------------------------
+log "zsh"
+if command -v zsh >/dev/null 2>&1; then
+  ok "zsh already installed: $(zsh --version 2>/dev/null || true)"
+else
+  pm_install zsh || warn "zsh could not be installed (continuing)"
+fi
+
 # MySQL/MariaDB client (package name varies by distro)
 log "MySQL/MariaDB client"
 case "$PM" in
