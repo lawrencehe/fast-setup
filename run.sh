@@ -257,21 +257,15 @@ case "$PM" in
 esac
 
 # ---------------------------------------------------------------------------
-# Java (21 preferred, graceful fallback)
+# Java (OpenJDK 21 — stay on the 21 line, latest 21.x only)
 # ---------------------------------------------------------------------------
-log "Java (OpenJDK)"
+log "Java (OpenJDK 21)"
 case "$PM" in
   apt)
-    pm_install openjdk-21-jdk || {
-      warn "openjdk-21-jdk unavailable; falling back to openjdk-17-jdk."
-      pm_try openjdk-17-jdk || pm_try openjdk-11-jdk || die "No OpenJDK package could be installed."
-    }
+    pm_install openjdk-21-jdk || warn "openjdk-21-jdk unavailable; skipping Java (no other major version installed)."
     ;;
   dnf|yum)
-    pm_install java-21-openjdk-devel || {
-      warn "java-21-openjdk-devel unavailable; falling back to java-17-openjdk-devel."
-      pm_try java-17-openjdk-devel || pm_try java-11-openjdk-devel || die "No OpenJDK package could be installed."
-    }
+    pm_install java-21-openjdk-devel || warn "java-21-openjdk-devel unavailable; skipping Java (no other major version installed)."
     ;;
 esac
 

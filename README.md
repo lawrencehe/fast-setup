@@ -45,7 +45,7 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   and a build toolchain (`build-essential` or `gcc`/`gcc-c++`/`make`)
 - **zsh** — installed if missing, upgraded when an update is available, otherwise left as-is
 - **Database clients** — MySQL/MariaDB client and PostgreSQL client
-- **OpenJDK 21** (falls back to 17, then 11, if 21 is unavailable)
+- **OpenJDK 21** — pinned to the 21 line (latest 21.x); no other major version is installed if 21 is unavailable
 - **Apache Maven 3.9.9** — installed under `/opt`, symlinked to `/usr/local/bin/mvn`
 - **uv** and the latest stable Python (managed by uv)
 - **nvm** and the latest Node.js LTS
