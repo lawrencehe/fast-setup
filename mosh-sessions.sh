@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+# Mosh 会话巡检脚本
+# 功能：查看 mosh-server 进程信息及其 UDP socket
+
+set -u
+
+echo "========================================"
+echo "       Mosh Server Session Report"
+echo "========================================"
+echo "检查时间: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+echo
+
+# 检查 lsof 是否安装
+if ! command -v lsof >/dev/null 2>&1; then
+    echo "错误：未安装 lsof。"
+    echo "请执行：sudo dnf install lsof"
+    exit 1
+fi
+
+# 获取所有 mosh-server 进程 PID
+mapfile -t pids < <(pgrep -x mosh-server || true)
+
+# 从当前进程向上回溯，找到当前会话所属的 mosh-server PID
+# (链路: 脚本 -> shell -> ... -> 登录 shell -> mosh-server)
+cur_pid=""
+p=$$
+while [ -n "$p" ] && [ "$p" != "0" ] && [ "$p" != "1" ]; do
+    comm=$(ps -o comm= -p "$p" 2>/dev/null)
+    if [ "$comm" = "mosh-server" ]; then
+        cur_pid=$p
+        break
+    fi
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+done
+
+if [ "${#pids[@]}" -eq 0 ]; then
+    echo "当前没有运行中的 mosh-server 进程。"
+    exit 0
+fi
+
+echo "发现 ${#pids[@]} 个 mosh-server 进程。"
+echo
+
+# 逐个检查进程
+for pid in "${pids[@]}"; do
+    marker=""
+    [ "$pid" = "$cur_pid" ] && marker="   <== 当前会话"
+    echo "========================================"
+    echo "PID: $pid$marker"
+    echo "========================================"
+
+    # 进程基本信息
+    ps -p "$pid" \
+        -o pid,ppid,user,lstart,etime,stat,args
+
+    echo
+    echo "--- UDP Socket ---"
+
+    # 查看该进程使用的 UDP socket，提取类型(IPv4/IPv6)和地址
+    socket_info=$(sudo lsof -nP -a -p "$pid" -iUDP 2>/dev/null | awk 'NR>1 {print $5, $9}')
+
+    if [ -n "$socket_info" ]; then
+        echo "$socket_info" | while read -r stype addr; do
+            echo "UDP 地址: $addr  ($stype)"
+        done
+
+        # socket 未连接，lsof/ss 看不到客户端源 IP，用短时抓包探测
+        echo
+        echo "--- 客户端来源 IP ---"
+        if command -v tcpdump >/dev/null 2>&1; then
+            ports=$(echo "$socket_info" | awk -F: '{print $NF}')
+            for port in $ports; do
+                src=$(sudo timeout 5 tcpdump -nn -c 1 -i any "udp and dst port $port" 2>/dev/null \
+                      | grep -oE '([0-9]{1,3}\.){4}[0-9]{1,3}\.[0-9]+ +>' \
+                      | head -1 | awk '{print $1}' | sed 's/\.[0-9]*$//')
+                if [ -n "$src" ]; then
+                    echo "端口 $port <- 客户端公网 IP: $src"
+                else
+                    echo "端口 $port: 5 秒内未捕获到入站包（客户端可能离线/空闲）"
+                fi
+            done
+        else
+            echo "未安装 tcpdump，无法探测客户端来源。"
+            echo "可安装后重试，或查看 SSH 日志：sudo grep mosh /var/log/auth.log"
+        fi
+
+        echo
+        echo "(完整 socket 信息:)"
+        sudo lsof -nP -a -p "$pid" -iUDP
+    else
+        echo "未发现 UDP socket，或无权读取相关信息。"
+    fi
+
+    echo
+done
+
+echo "========================================"
+echo "巡检完成。"
+echo "========================================"

@@ -75,3 +75,4 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 ## Repository layout
 
 - [`run.sh`](run.sh) — the setup script
+- [`mosh-sessions.sh`](mosh-sessions.sh) — mosh 会话巡检脚本：查看运行中的 mosh-server 进程及其 UDP socket
