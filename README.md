@@ -49,13 +49,19 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **Apache Maven 3.9.9** — installed under `/opt`, symlinked to `/usr/local/bin/mvn`
 - **uv** and the latest stable Python (managed by uv)
 - **nvm** and the latest Node.js LTS
-- **[pi](https://github.com/earendil-works/pi)** coding agent
+- **[pi](https://pi.dev)** coding agent (native managed installer via `pi.dev/install.sh`)
+- **[T3 Code](https://t3.codes)** (`t3`, native standalone installer via `t3.codes/install.sh`)
+- **[Paseo](https://paseo.sh)** (`paseo`, official CLI `@getpaseo/cli` via nvm-managed Node.js)
+- **[Codex CLI](https://github.com/openai/codex)** (`codex`, native standalone installer via `chatgpt.com/codex/install.sh`)
+- **[Claude Code](https://claude.ai)** (`claude`, native standalone installer via `claude.ai/install.sh`)
+- **[Antigravity CLI](https://antigravity.google)** (`agy`, native standalone installer via `antigravity.google/cli/install.sh`)
 - **[herdr](https://herdr.dev)**
 - **Docker CE** with Buildx and Compose plugins
 - **kubectl** (latest stable)
 - **Alibaba Cloud CLI**
 - **lazygit** (latest)
 - **Ghostty terminfo** (installed globally)
+- **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, and `mosh`
 
 ## Notes
 
@@ -68,6 +74,15 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   `tmux`, the database clients and the build toolchain are installed
   best-effort. If one of them is unavailable on an older release, the rest of
   the setup still completes.
+- **Auto-update via cron** — `/etc/cron.d/fast-setup-auto-update` runs daily at
+  `03:00` Singapore time (`Asia/Singapore`, UTC+8), automatically converted to
+  the host's local timezone for compatibility with both Debian `cron` and RHEL
+  `cronie`:
+  - User tools (`t3`, `paseo`, `codex`, `claude`, `agy`, `pi`) are updated by
+    `~/.local/bin/fast-setup-update` (logs in `~/.local/state/fast-setup/auto-update.log`).
+    You can also run `fast-setup-update` manually at any time.
+  - `mosh` is updated by `/usr/local/sbin/fast-setup-mosh-update` via `apt`/`dnf`/`yum`
+    (logs in `/var/log/fast-setup-mosh-update.log`).
 - **Idempotent** — the script can be re-run safely: missing tools are installed,
   outdated tools are upgraded to the latest available version, and already-latest
   tools are skipped. Maven is pinned to 3.9.9.

@@ -321,11 +321,73 @@ nvm alias default 'lts/*'
 nvm use default
 
 # ---------------------------------------------------------------------------
-# pi coding agent
+# pi coding agent (native managed installer)
 # ---------------------------------------------------------------------------
 log "pi coding agent"
-# https://github.com/earendil-works/pi — installs into the nvm-managed Node
-npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+install_pi_native() {
+  local tmp rc=0
+  tmp="$(mktemp)"
+  if curl -fsSL https://pi.dev/install.sh -o "$tmp"; then
+    # Detach /dev/tty so pi.dev/install.sh chooses the default action non-interactively
+    # (fresh install, migrate from legacy npm install, or reinstall).
+    if command -v setsid >/dev/null 2>&1 && setsid --wait true 2>/dev/null; then
+      setsid --wait sh "$tmp" </dev/null || rc=$?
+    else
+      sh "$tmp" </dev/null || rc=$?
+    fi
+  else
+    rc=$?
+  fi
+  rm -f "$tmp"
+  return "$rc"
+}
+if command -v pi >/dev/null 2>&1 && pi update; then
+  ok "pi updated"
+else
+  install_pi_native || warn "pi installation failed (continuing)"
+fi
+
+# ---------------------------------------------------------------------------
+# T3 Code (native standalone installer)
+# ---------------------------------------------------------------------------
+log "T3 Code"
+if command -v t3 >/dev/null 2>&1; then
+  t3 update || (curl -fsSL https://t3.codes/install.sh | sh) || warn "T3 Code update failed (continuing)"
+else
+  (curl -fsSL https://t3.codes/install.sh | sh) || warn "T3 Code installation failed (continuing)"
+fi
+
+# ---------------------------------------------------------------------------
+# Paseo CLI (official npm package via nvm-managed Node.js)
+# ---------------------------------------------------------------------------
+log "Paseo CLI"
+npm install -g @getpaseo/cli@latest || warn "Paseo CLI installation failed (continuing)"
+
+# ---------------------------------------------------------------------------
+# OpenAI Codex CLI (native standalone installer)
+# ---------------------------------------------------------------------------
+log "Codex CLI"
+(curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh) || warn "Codex CLI installation failed (continuing)"
+
+# ---------------------------------------------------------------------------
+# Claude Code (native standalone installer)
+# ---------------------------------------------------------------------------
+log "Claude Code"
+if command -v claude >/dev/null 2>&1; then
+  claude update || (curl -fsSL https://claude.ai/install.sh | bash) || warn "Claude Code update failed (continuing)"
+else
+  (curl -fsSL https://claude.ai/install.sh | bash) || warn "Claude Code installation failed (continuing)"
+fi
+
+# ---------------------------------------------------------------------------
+# Antigravity CLI (native standalone installer)
+# ---------------------------------------------------------------------------
+log "Antigravity CLI (agy)"
+if command -v agy >/dev/null 2>&1; then
+  agy update || (curl -fsSL https://antigravity.google/cli/install.sh | bash) || warn "Antigravity CLI update failed (continuing)"
+else
+  (curl -fsSL https://antigravity.google/cli/install.sh | bash) || warn "Antigravity CLI installation failed (continuing)"
+fi
 
 # ---------------------------------------------------------------------------
 # herdr
@@ -505,6 +567,173 @@ infocmp -x xterm-ghostty >/dev/null
 ok "xterm-ghostty installed globally"
 
 # ---------------------------------------------------------------------------
+# Auto-update via Linux system cron (daily at 03:00 SGT / Asia/Singapore, UTC+8)
+# ---------------------------------------------------------------------------
+log "Auto-update (Linux system cron @ 03:00 SGT / UTC+8)"
+case "$PM" in
+  apt)
+    pm_install cron || warn "cron could not be installed (continuing)"
+    CRON_SVC=cron
+    ;;
+  dnf|yum)
+    pm_install cronie || warn "cronie could not be installed (continuing)"
+    CRON_SVC=crond
+    ;;
+esac
+
+if command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+  sudo systemctl enable --now "$CRON_SVC" || warn "could not enable/start ${CRON_SVC}"
+elif command -v service >/dev/null 2>&1; then
+  sudo service "$CRON_SVC" start || warn "could not start ${CRON_SVC}"
+fi
+
+TARGET_USER="$(id -un)"
+TARGET_HOME="$HOME"
+STATE_DIR="${TARGET_HOME}/.local/state/fast-setup"
+USER_UPDATER="${TARGET_HOME}/.local/bin/fast-setup-update"
+MOSH_UPDATER="/usr/local/sbin/fast-setup-mosh-update"
+CRON_FILE="/etc/cron.d/fast-setup-auto-update"
+
+mkdir -p "${TARGET_HOME}/.local/bin" "$STATE_DIR"
+
+cat >"$USER_UPDATER" <<'EOF'
+#!/usr/bin/env bash
+# Auto-update user CLI tools managed by fast-setup:
+# t3, paseo, codex, claude, agy, pi
+set -uo pipefail
+
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export NVM_DIR="$HOME/.nvm"
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  # shellcheck disable=SC1090
+  . "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
+fi
+
+STATE_DIR="$HOME/.local/state/fast-setup"
+LOCK_FILE="${STATE_DIR}/auto-update.lock"
+LOG_FILE="${STATE_DIR}/auto-update.log"
+mkdir -p "$STATE_DIR"
+
+# Prevent overlapping runs
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    printf '[%s] Another fast-setup-update is already running; skipping.\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')"
+    exit 0
+  fi
+fi
+
+# Simple log size cap (~5 MB)
+if [[ -f "$LOG_FILE" ]] && (( $(wc -c <"$LOG_FILE" 2>/dev/null || echo 0) > 5242880 )); then
+  tail -n 1000 "$LOG_FILE" >"${LOG_FILE}.tmp" && mv "${LOG_FILE}.tmp" "$LOG_FILE"
+fi
+
+ts() { date '+%Y-%m-%d %H:%M:%S %Z'; }
+log() { printf '[%s] %s\n' "$(ts)" "$*"; }
+
+run_update() {
+  local name="$1"; shift
+  log "Updating ${name}..."
+  if "$@"; then
+    log "OK: ${name}"
+  else
+    log "WARN: ${name} update failed (exit $?)"
+  fi
+}
+
+update_t3() {
+  t3 update || (curl -fsSL https://t3.codes/install.sh | sh)
+}
+
+update_paseo() {
+  npm install -g @getpaseo/cli@latest
+}
+
+update_codex() {
+  curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh
+}
+
+update_claude() {
+  claude update || (curl -fsSL https://claude.ai/install.sh | bash)
+}
+
+update_agy() {
+  agy update || (curl -fsSL https://antigravity.google/cli/install.sh | bash)
+}
+
+update_pi() {
+  if pi update; then
+    return 0
+  fi
+  local tmp rc=0
+  tmp="$(mktemp)"
+  if curl -fsSL https://pi.dev/install.sh -o "$tmp"; then
+    if command -v setsid >/dev/null 2>&1 && setsid --wait true 2>/dev/null; then
+      setsid --wait sh "$tmp" </dev/null || rc=$?
+    else
+      sh "$tmp" </dev/null || rc=$?
+    fi
+  else
+    rc=$?
+  fi
+  rm -f "$tmp"
+  return "$rc"
+}
+
+log "=== fast-setup auto-update started ==="
+command -v t3 >/dev/null 2>&1     && run_update "t3" update_t3
+command -v paseo >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 && run_update "paseo" update_paseo
+command -v codex >/dev/null 2>&1  && run_update "codex" update_codex
+command -v claude >/dev/null 2>&1 && run_update "claude" update_claude
+command -v agy >/dev/null 2>&1    && run_update "agy" update_agy
+command -v pi >/dev/null 2>&1     && run_update "pi" update_pi
+log "=== fast-setup auto-update finished ==="
+EOF
+chmod 0755 "$USER_UPDATER"
+
+sudo tee "$MOSH_UPDATER" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+# Auto-update mosh via the system package manager.
+set -uo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+ts() { date '+%Y-%m-%d %H:%M:%S %Z'; }
+log() { printf '[%s] %s\n' "$(ts)" "$*"; }
+
+command -v mosh >/dev/null 2>&1 || exit 0
+
+log "Updating mosh..."
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -qq && apt-get install -y --only-upgrade mosh
+elif command -v dnf >/dev/null 2>&1; then
+  dnf -y upgrade mosh
+elif command -v yum >/dev/null 2>&1; then
+  yum -y upgrade mosh
+fi
+log "mosh update finished (exit $?)"
+EOF
+sudo chmod 0755 "$MOSH_UPDATER"
+sudo chown root:root "$MOSH_UPDATER"
+
+# Convert 03:00 Singapore time (UTC+8, no DST) into the host's local cron schedule
+# so it works consistently on both Debian cron (which ignores CRON_TZ) and RHEL cronie.
+read -r CRON_MIN CRON_HOUR <<<"$(date -d '03:00 +0800' '+%-M %-H')"
+CRON_LOCAL_DISPLAY="$(date -d '03:00 +0800' '+%H:%M %Z (%z)')"
+
+sudo tee "$CRON_FILE" >/dev/null <<EOF
+# Managed by fast-setup — daily auto-update at 03:00 SGT (Asia/Singapore, UTC+8).
+# Converted to host local time: ${CRON_LOCAL_DISPLAY}
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+${CRON_MIN} ${CRON_HOUR} * * * ${TARGET_USER} ${USER_UPDATER} >> ${STATE_DIR}/auto-update.log 2>&1
+${CRON_MIN} ${CRON_HOUR} * * * root ${MOSH_UPDATER} >> /var/log/fast-setup-mosh-update.log 2>&1
+EOF
+sudo chmod 0644 "$CRON_FILE"
+sudo chown root:root "$CRON_FILE"
+ok "System cron configured: ${CRON_FILE} (03:00 SGT -> ${CRON_LOCAL_DISPLAY})"
+
+# ---------------------------------------------------------------------------
 # Versions
 # ---------------------------------------------------------------------------
 run_ver() {
@@ -534,6 +763,11 @@ run_ver lazygit lazygit --version
 run_ver btop btop --version
 run_ver tmux tmux -V
 run_ver mosh mosh --version
+run_ver t3 t3 --version
+run_ver paseo paseo --version
+run_ver codex codex --version
+run_ver claude claude --version
+run_ver agy agy --version
 run_ver pi pi --version
 run_ver herdr herdr --version
 
