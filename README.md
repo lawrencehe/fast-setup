@@ -56,20 +56,30 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **[Claude Code](https://claude.ai)** (`claude`, native standalone installer via `claude.ai/install.sh`)
 - **[Antigravity CLI](https://antigravity.google)** (`agy`, native standalone installer via `antigravity.google/cli/install.sh`)
 - **[herdr](https://herdr.dev)**
+- **[Tailscale](https://tailscale.com)** (`tailscale` + `tailscaled` from the official stable
+  repository, enabled at boot)
 - **Docker CE** with Buildx and Compose plugins
 - **kubectl** (latest stable)
 - **Alibaba Cloud CLI**
 - **lazygit** (latest)
 - **Ghostty terminfo** (installed globally)
-- **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, and `mosh`
+- **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, `mosh`, and `tailscale`
 
 ## Notes
 
 - **Docker group** — after the first install, log out and back in (or run
   `newgrp docker`) so you can use `docker ps` without `sudo`.
-- **mosh** — the script opens UDP `60000-61000` on `firewalld` or `ufw` when one
-  of them is active. If your provider uses a cloud firewall, open the same range
+- **mosh / Tailscale firewall** — the script opens UDP `60000-61000` (mosh) and
+  UDP `41641` (Tailscale direct connections) on `firewalld` or `ufw` when one of
+  them is active. If your provider uses a cloud firewall, open the same ports
   there.
+- **Tailscale** — installed from Tailscale's official stable repository. For
+  Debian/Ubuntu derivatives whose codename is not published there, the nearest
+  LTS suite is used; on RHEL-family systems the matching `centos/<major>` tree
+  is used, falling back to EL9. Logging in is interactive: after the script
+  finishes, run `tailscale up` (the invoking user is made the Tailscale operator,
+  so no sudo is needed). For unattended installs, export
+  `TAILSCALE_AUTH_KEY=tskey-auth-…` before running the script.
 - **Best-effort optional packages** — tools such as `mosh`, `neovim`, `btop`,
   `tmux`, the database clients and the build toolchain are installed
   best-effort. If one of them is unavailable on an older release, the rest of
@@ -81,8 +91,8 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   - User tools (`t3`, `paseo`, `codex`, `claude`, `agy`, `pi`) are updated by
     `~/.local/bin/fast-setup-update` (logs in `~/.local/state/fast-setup/auto-update.log`).
     You can also run `fast-setup-update` manually at any time.
-  - `mosh` is updated by `/usr/local/sbin/fast-setup-mosh-update` via `apt`/`dnf`/`yum`
-    (logs in `/var/log/fast-setup-mosh-update.log`).
+  - `mosh` and `tailscale` are updated by `/usr/local/sbin/fast-setup-pkg-update`
+    via `apt`/`dnf`/`yum` (logs in `/var/log/fast-setup-pkg-update.log`).
 - **Idempotent** — the script can be re-run safely: missing tools are installed,
   outdated tools are upgraded to the latest available version, and already-latest
   tools are skipped. Maven is pinned to 3.9.9.

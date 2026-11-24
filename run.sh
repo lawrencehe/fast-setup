@@ -61,7 +61,8 @@ pm_install() {
   case "$PM" in
     apt)
       for p in "$@"; do
-        sudo apt-get install -y "$p" || rc=1
+        # sudo's env_reset drops DEBIAN_FRONTEND, so pass it explicitly (no debconf/needrestart prompts).
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y "$p" || rc=1
       done
       ;;
     dnf|yum)
@@ -104,18 +105,22 @@ pm_try_each() {
 
 repo_add() {
   local url="$1"
+  local filename="${2:-$(basename "$url")}" dnf_overwrite=""
   case "$PM" in
     dnf)
       if command -v dnf5 >/dev/null 2>&1; then
-        sudo dnf5 config-manager addrepo --overwrite --save-filename=docker-ce.repo --from-repofile="$url"
+        sudo dnf5 config-manager addrepo --overwrite --save-filename="$filename" --from-repofile="$url"
       else
         pm_try dnf-plugins-core >/dev/null 2>&1 || true
-        sudo dnf config-manager --add-repo "$url"
+        # Re-adding an existing repo is refused unless --overwrite (dnf-plugins-core >= 4.1) is passed.
+        if dnf config-manager --help 2>/dev/null | grep -q -- '--overwrite'; then dnf_overwrite="--overwrite"; fi
+        # shellcheck disable=SC2086
+        sudo dnf config-manager $dnf_overwrite --add-repo "$url" || warn "could not add repository ${filename} (best effort)"
       fi
       ;;
     yum)
       pm_try yum-utils >/dev/null 2>&1 || true
-      sudo yum-config-manager --add-repo "$url"
+      sudo yum-config-manager --add-repo "$url" || warn "could not add repository ${filename} (best effort)"
       ;;
   esac
   sudo "$PM" -y makecache || true
@@ -429,16 +434,104 @@ log "herdr"
 curl -fsSL https://herdr.dev/install.sh | sh
 
 # ---------------------------------------------------------------------------
-# mosh firewall
+# Tailscale (official stable repo; later upgrades come from the package manager)
 # ---------------------------------------------------------------------------
-log "mosh firewall"
+log "Tailscale"
+TS_BASE="https://pkgs.tailscale.com/stable"
+TS_KEYRING="/usr/share/keyrings/tailscale-archive-keyring.gpg"
+
+# Debian/Ubuntu: use the distro codename when Tailscale publishes a suite for it,
+# otherwise fall back to a recent stable release (derivatives like Mint have their
+# own codenames). tailscale is a static Go binary, so the fallback is safe.
+ts_apt_codename() {
+  local family="$1" fallback="$2" c="${VERSION_CODENAME:-}"
+  if [[ "$c" == "n/a" ]]; then c=""; fi
+  if [[ -n "$c" ]] && curl -fsSLI -o /dev/null "${TS_BASE}/${family}/dists/${c}/InRelease"; then
+    printf '%s\n' "$c"
+  else
+    if [[ -n "$c" ]]; then warn "no Tailscale repository for ${family} '${c}'; using '${fallback}'"; fi
+    printf '%s\n' "$fallback"
+  fi
+}
+
+case "$PM" in
+  apt)
+    ts_family="ubuntu"; ts_fallback="noble"
+    if [[ "${ID:-}" == debian ]]; then ts_family="debian"; ts_fallback="bookworm"; fi
+    ts_codename="$(ts_apt_codename "$ts_family" "$ts_fallback")"
+    tmp="$(mktemp -d)"
+    curl -fsSL "${TS_BASE}/${ts_family}/${ts_codename}.noarmor.gpg" -o "$tmp/keyring.gpg"
+    # Same content as the official <codename>.tailscale-keyring.list
+    printf '# Tailscale packages for %s %s\ndeb [signed-by=%s] %s/%s %s main\n' \
+      "$ts_family" "$ts_codename" "$TS_KEYRING" "$TS_BASE" "$ts_family" "$ts_codename" >"$tmp/tailscale.list"
+    ts_repo_changed=0
+    if ! sudo cmp -s "$tmp/keyring.gpg" "$TS_KEYRING"; then
+      sudo install -m 0644 "$tmp/keyring.gpg" "$TS_KEYRING"
+      ts_repo_changed=1
+    fi
+    if ! sudo cmp -s "$tmp/tailscale.list" /etc/apt/sources.list.d/tailscale.list; then
+      sudo install -m 0644 "$tmp/tailscale.list" /etc/apt/sources.list.d/tailscale.list
+      ts_repo_changed=1
+    fi
+    rm -rf "$tmp"
+    if (( ts_repo_changed )); then sudo apt-get update -y; fi
+    ;;
+  dnf|yum)
+    case "${ID:-}" in
+      fedora) ts_repo="${TS_BASE}/fedora/tailscale.repo" ;;
+      *)
+        # EL family: use the tree for this major version; fall back to EL9 for
+        # releases Tailscale does not publish (e.g. Amazon Linux).
+        ts_major="${VERSION_ID:-9}"; ts_major="${ts_major%%.*}"
+        ts_repo="${TS_BASE}/centos/${ts_major}/tailscale.repo"
+        curl -fsSLI -o /dev/null "$ts_repo" || ts_repo="${TS_BASE}/centos/9/tailscale.repo"
+        ;;
+    esac
+    repo_add "$ts_repo" tailscale.repo
+    ;;
+esac
+pm_install tailscale || warn "tailscale could not be installed (continuing)"
+
+if command -v tailscaled >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && [[ -d /run/systemd/system ]]; then
+  sudo systemctl enable --now tailscaled || warn "could not enable/start tailscaled"
+  # Let the invoking user run `tailscale up`/`down` without sudo.
+  sudo tailscale set --operator="$(id -un)" 2>/dev/null || true
+fi
+
+# `tailscale up` needs an interactive browser login unless TAILSCALE_AUTH_KEY is set.
+if command -v tailscale >/dev/null 2>&1; then
+  ts_state="$(tailscale status --peers=false --json 2>/dev/null | jq -r '.BackendState // empty' || true)"
+  case "$ts_state" in
+    Running) ok "Tailscale connected ($(tailscale ip 2>/dev/null | head -1))" ;;
+    Stopped) ok "Tailscale logged in but stopped; start it with: tailscale up" ;;
+    *)
+      if [[ -n "${TAILSCALE_AUTH_KEY:-}" ]]; then
+        if sudo tailscale up --auth-key="$TAILSCALE_AUTH_KEY"; then
+          ok "Tailscale connected ($(tailscale ip 2>/dev/null | head -1))"
+        else
+          warn "tailscale up failed (continuing)"
+        fi
+      else
+        warn "Tailscale installed but not logged in (state: ${ts_state:-unknown}). Log in with: tailscale up"
+        warn "For unattended installs, re-run with TAILSCALE_AUTH_KEY=tskey-auth-… in the environment."
+      fi
+      ;;
+  esac
+fi
+
+# ---------------------------------------------------------------------------
+# Firewall: mosh (UDP 60000-61000) + Tailscale direct connections (UDP 41641)
+# ---------------------------------------------------------------------------
+log "Firewall (mosh UDP 60000-61000, Tailscale UDP 41641)"
 if command -v firewall-cmd >/dev/null 2>&1 && sudo firewall-cmd --state 2>/dev/null | grep -q running; then
   sudo firewall-cmd --permanent --add-port=60000-61000/udp
+  sudo firewall-cmd --permanent --add-port=41641/udp
   sudo firewall-cmd --reload
 elif command -v ufw >/dev/null 2>&1 && sudo ufw status | grep -q '^Status: active'; then
   sudo ufw allow 60000:61000/udp
+  sudo ufw allow 41641/udp
 else
-  ok "no local firewall active; if the provider has a cloud firewall, open UDP 60000-61000 for mosh"
+  ok "no local firewall active; if the provider has a cloud firewall, open UDP 60000-61000 (mosh) and UDP 41641 (Tailscale)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -623,7 +716,7 @@ TARGET_USER="$(id -un)"
 TARGET_HOME="$HOME"
 STATE_DIR="${TARGET_HOME}/.local/state/fast-setup"
 USER_UPDATER="${TARGET_HOME}/.local/bin/fast-setup-update"
-MOSH_UPDATER="/usr/local/sbin/fast-setup-mosh-update"
+PKG_UPDATER="/usr/local/sbin/fast-setup-pkg-update"
 CRON_FILE="/etc/cron.d/fast-setup-auto-update"
 
 mkdir -p "${TARGET_HOME}/.local/bin" "$STATE_DIR"
@@ -723,29 +816,63 @@ log "=== fast-setup auto-update finished ==="
 EOF
 chmod 0755 "$USER_UPDATER"
 
-sudo tee "$MOSH_UPDATER" >/dev/null <<'EOF'
+sudo tee "$PKG_UPDATER" >/dev/null <<'EOF'
 #!/usr/bin/env bash
-# Auto-update mosh via the system package manager.
+# Auto-update system packages managed by fast-setup via the system package manager.
+# Currently: mosh, tailscale
 set -uo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
 ts() { date '+%Y-%m-%d %H:%M:%S %Z'; }
 log() { printf '[%s] %s\n' "$(ts)" "$*"; }
 
-command -v mosh >/dev/null 2>&1 || exit 0
+PKGS=(mosh tailscale)
 
-log "Updating mosh..."
+update_apt() {
+  local p
+  apt-get update -qq
+  for p in "${PKGS[@]}"; do
+    dpkg -s "$p" >/dev/null 2>&1 || continue
+    log "Updating ${p}..."
+    apt-get install -y --only-upgrade "$p"
+    log "${p} update finished (exit $?)"
+  done
+}
+
+update_dnf() {
+  local p
+  for p in "${PKGS[@]}"; do
+    rpm -q "$p" >/dev/null 2>&1 || continue
+    log "Updating ${p}..."
+    dnf -y upgrade "$p"
+    log "${p} update finished (exit $?)"
+  done
+}
+
+update_yum() {
+  local p
+  for p in "${PKGS[@]}"; do
+    rpm -q "$p" >/dev/null 2>&1 || continue
+    log "Updating ${p}..."
+    yum -y upgrade "$p"
+    log "${p} update finished (exit $?)"
+  done
+}
+
 if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -qq && apt-get install -y --only-upgrade mosh
+  update_apt
 elif command -v dnf >/dev/null 2>&1; then
-  dnf -y upgrade mosh
+  update_dnf
 elif command -v yum >/dev/null 2>&1; then
-  yum -y upgrade mosh
+  update_yum
+else
+  log "No supported package manager found; nothing to do."
 fi
-log "mosh update finished (exit $?)"
 EOF
-sudo chmod 0755 "$MOSH_UPDATER"
-sudo chown root:root "$MOSH_UPDATER"
+sudo chmod 0755 "$PKG_UPDATER"
+sudo chown root:root "$PKG_UPDATER"
+# Older releases installed a mosh-only updater; remove it so only one remains.
+sudo rm -f /usr/local/sbin/fast-setup-mosh-update
 
 # Convert 03:00 Singapore time (UTC+8, no DST) into the host's local cron schedule
 # so it works consistently on both Debian cron (which ignores CRON_TZ) and RHEL cronie.
@@ -759,7 +886,7 @@ SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ${CRON_MIN} ${CRON_HOUR} * * * ${TARGET_USER} ${USER_UPDATER} >> ${STATE_DIR}/auto-update.log 2>&1
-${CRON_MIN} ${CRON_HOUR} * * * root ${MOSH_UPDATER} >> /var/log/fast-setup-mosh-update.log 2>&1
+${CRON_MIN} ${CRON_HOUR} * * * root ${PKG_UPDATER} >> /var/log/fast-setup-pkg-update.log 2>&1
 EOF
 sudo chmod 0644 "$CRON_FILE"
 sudo chown root:root "$CRON_FILE"
@@ -795,6 +922,7 @@ run_ver lazygit lazygit --version
 run_ver btop btop --version
 run_ver tmux tmux -V
 run_ver mosh mosh --version
+run_ver tailscale tailscale version
 run_ver t3 t3 --version
 run_ver paseo paseo --version
 run_ver codex codex --version
