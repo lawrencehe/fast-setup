@@ -345,9 +345,29 @@ install_pi_native() {
   rm -f "$tmp"
   return "$rc"
 }
-if command -v pi >/dev/null 2>&1 && pi update; then
+# Policy: prefer the managed installation; migrate legacy npm installs to it;
+# fall back to npm only when the managed installer itself is unavailable.
+pi_is_managed() {
+  command -v pi >/dev/null 2>&1 || return 1
+  case "$(readlink -f "$(command -v pi)")" in
+    */.pi/agent/bin/pi) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if ! pi_is_managed; then
+  # No pi yet, or a legacy npm install: the official installer handles both
+  # (fresh install, or migrate from npm and remove the npm package).
+  if install_pi_native; then
+    ok "pi managed installation ready"
+  else
+    warn "managed installer unavailable; falling back to npm"
+    npm install -g --ignore-scripts @earendil-works/pi-coding-agent || warn "pi installation failed (continuing)"
+  fi
+elif pi update; then
   ok "pi updated"
 else
+  warn "pi update failed; retrying with managed installer"
   install_pi_native || warn "pi installation failed (continuing)"
 fi
 
