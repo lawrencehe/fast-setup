@@ -324,6 +324,10 @@ nvm use default
 # pi coding agent (native managed installer)
 # ---------------------------------------------------------------------------
 log "pi coding agent"
+# Managed installs live in ~/.pi/agent/bin; the non-interactive installer doesn't
+# touch shell rc files, so add it here for the rest of this run (pi update,
+# re-runs on migrated setups) and in the cron updater below.
+export PATH="$HOME/.pi/agent/bin:$PATH"
 install_pi_native() {
   local tmp rc=0
   tmp="$(mktemp)"
@@ -602,7 +606,7 @@ cat >"$USER_UPDATER" <<'EOF'
 # t3, paseo, codex, claude, agy, pi
 set -uo pipefail
 
-export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:/usr/local/bin:/usr/bin:/bin"
 export NVM_DIR="$HOME/.nvm"
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   # shellcheck disable=SC1090
