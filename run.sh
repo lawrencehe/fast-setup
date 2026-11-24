@@ -328,6 +328,14 @@ log "pi coding agent"
 # touch shell rc files, so add it here for the rest of this run (pi update,
 # re-runs on migrated setups) and in the cron updater below.
 export PATH="$HOME/.pi/agent/bin:$PATH"
+# Persist it for future login shells (mosh/ssh), since the installer won't.
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  [[ "$rc" == "$HOME/.bashrc" || -f "$rc" ]] || continue
+  if ! grep -qF '.pi/agent/bin' "$rc" 2>/dev/null; then
+    printf '\n# pi coding agent (managed install)\nexport PATH="$HOME/.pi/agent/bin:$PATH"\n' >> "$rc"
+    ok "Added ~/.pi/agent/bin to PATH in ${rc/#$HOME/\~}"
+  fi
+done
 install_pi_native() {
   local tmp rc=0
   tmp="$(mktemp)"
