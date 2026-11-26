@@ -2,8 +2,9 @@
 # Claude Code 状态栏：模型 · 目录 · git 分支 · 上下文 · 5h/7d 额度 · Code Mode · 登录账号
 # stdin 是 Claude Code 传来的会话 JSON，输出一行文字。颜色用 256 色里偏柔和的色号。
 # 依赖：bash、jq、git。Linux 和 macOS 都能用。
-# 安装：放到 ~/.claude/statusline.sh 并 chmod +x，在 ~/.claude/settings.json 里加
-#   "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" }
+# 安装：curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- statusline
+#   （或手动放到 ~/.claude/statusline.sh 并 chmod +x，在 ~/.claude/settings.json 里加
+#    "statusLine": { "type": "command", "command": "~/.claude/statusline.sh" }）
 
 input=$(cat)
 command -v jq >/dev/null 2>&1 || { printf 'statusline: jq missing'; exit 0; }

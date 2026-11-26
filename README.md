@@ -64,6 +64,8 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **[rclone](https://rclone.org)** (latest stable, official installer via `rclone.org/install.sh`)
 - **lazygit** (latest)
 - **Ghostty terminfo** (installed globally)
+- **fast-setup scripts** — `mosh-sessions` and the Claude Code status line, via
+  [`install.sh`](install.sh) (see [below](#fast-setup-scripts))
 - **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, `mosh`, and `tailscale`
 
 ## Install policy
@@ -113,20 +115,47 @@ Rules every step in `run.sh` follows (see `CLAUDE.md` for details):
   outdated tools are upgraded to the latest available version, and already-latest
   tools are skipped. Maven is pinned to 3.9.9.
 
-## Claude Code status line
+## fast-setup scripts
 
-[`claude-statusline.sh`](claude-statusline.sh) is a standalone status line for
-[Claude Code](https://claude.ai). It is not installed by `run.sh`; install it
-separately on any Linux or macOS machine that has `bash`, `jq` and `git`:
+Besides third-party tools, this repo ships a few scripts of its own. `run.sh`
+installs all of them, and [`install.sh`](install.sh) installs any of them on
+its own — no `run.sh`, no root or sudo, on Linux or macOS:
 
 ```bash
-mkdir -p ~/.claude
-curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/claude-statusline.sh -o ~/.claude/statusline.sh
-chmod +x ~/.claude/statusline.sh
-[ -f ~/.claude/settings.json ] || echo '{}' > ~/.claude/settings.json
-jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' ~/.claude/settings.json > ~/.claude/settings.json.tmp \
-  && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
+# one script
+curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- mosh-sessions
+# several, or all
+curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- mosh-sessions statusline
+curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- all
 ```
+
+Re-running it updates a script whose contents changed and skips one that is
+already the latest. Run from a clone (`./install.sh …`), it installs the files
+in that clone.
+
+| Name            | Source                                       | Installed to                   |
+| --------------- | -------------------------------------------- | ------------------------------ |
+| `mosh-sessions` | [`bin/mosh-sessions`](bin/mosh-sessions)     | `~/.local/bin/mosh-sessions`   |
+| `statusline`    | [`claude/statusline.sh`](claude/statusline.sh) | `~/.claude/statusline.sh`      |
+
+Every script is a single self-contained file, so it can also be run once
+without installing:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/bin/mosh-sessions | bash
+```
+
+### mosh-sessions
+
+mosh 会话巡检：列出运行中的 `mosh-server` 进程、其 UDP socket，并标出当前会话；
+装了 `tcpdump` 时会短暂抓包探测客户端来源 IP。需要 `lsof`，部分信息需要 `sudo`。
+
+### Claude Code status line
+
+`statusline` is a status line for [Claude Code](https://claude.ai). It needs
+`bash`, `jq` and `git`. The installer also sets `statusLine` in
+`~/.claude/settings.json`, unless another status line is already configured
+there (then it leaves the setting alone and warns).
 
 Start a new Claude Code session and it shows one line:
 
@@ -151,6 +180,7 @@ Fable 5.2 · my-project · main* · ctx █▌          12% · 5h ▍           
 
 ## Repository layout
 
-- [`run.sh`](run.sh) — the setup script
-- [`claude-statusline.sh`](claude-statusline.sh) — Claude Code status line (see [above](#claude-code-status-line))
-- [`mosh-sessions.sh`](mosh-sessions.sh) — mosh 会话巡检脚本：查看运行中的 mosh-server 进程及其 UDP socket
+- [`run.sh`](run.sh) — the server setup script (third-party tools)
+- [`install.sh`](install.sh) — installs fast-setup's own scripts (see [above](#fast-setup-scripts))
+- [`bin/`](bin) — command-line scripts, installed to `~/.local/bin`
+- [`claude/`](claude) — Claude Code add-ons, installed to `~/.claude`

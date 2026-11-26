@@ -38,3 +38,23 @@
   `set -Eeuo pipefail`，注意处理安装脚本的非 0 退出码）。
 - 新增工具时同步更新 `README.md` 的 “What gets installed” 列表和
   `run.sh` 末尾的 `run_ver` 版本输出。
+
+## 仓库自带脚本（bin/、claude/ 与 install.sh）
+
+仓库里自己写的常用脚本，既能随 `run.sh` 安装，也能脱离 `run.sh` 单独安装、运行。
+
+- **自包含**：每个脚本是单个文件，不 source 仓库里的其它文件，
+  `curl -fsSL <raw URL> | bash` 也能直接跑。
+- **放哪里**：命令行工具放 `bin/<名字>`（不带 `.sh`，装到 `~/.local/bin`）；
+  某个软件的配套脚本放对应目录（如 `claude/`）。
+- **新增脚本只改两处**：
+  1. 把文件放进上面的目录；
+  2. 在 `install.sh` 的 `SCRIPTS` 里登记一行 `名字|仓库内路径|安装路径`。
+     需要额外配置的（如改 `settings.json`），写一个 `post_<名字>` 函数
+     （名字里的 `-` 换成 `_`）。
+  `run.sh` 调用 `install.sh all`，不用改。
+- **install.sh 的要求**：不需要 root / sudo，Linux 和 macOS 都能用，
+  不依赖 `apt` / `dnf`；内容相同的跳过（`ok "<名字> already latest"`），
+  不同的才覆盖；修改用户已有配置前先检查，不覆盖用户自己的设置。
+- **同步更新 `README.md`** 的 “fast-setup scripts” 表格和说明。
+- 只收服务器上常用的脚本；与服务器无关的脚本不放进本仓库。

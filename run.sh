@@ -919,6 +919,23 @@ sudo chown root:root "$CRON_FILE"
 ok "System cron configured: ${CRON_FILE} (03:00 SGT -> ${CRON_LOCAL_DISPLAY})"
 
 # ---------------------------------------------------------------------------
+# fast-setup's own scripts (mosh-sessions, Claude Code status line, ...)
+# install.sh also works on its own; run.sh just installs all of them.
+# ---------------------------------------------------------------------------
+log "fast-setup scripts"
+SELF_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+if [[ -n "$SELF_DIR" && -f "${SELF_DIR}/install.sh" ]]; then
+  bash "${SELF_DIR}/install.sh" all || warn "some fast-setup scripts could not be installed (continuing)"
+else
+  # Piped through curl | bash: no local clone, fetch the installer.
+  curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- all \
+    || warn "some fast-setup scripts could not be installed (continuing)"
+fi
+
+# ---------------------------------------------------------------------------
 # Versions
 # ---------------------------------------------------------------------------
 run_ver() {

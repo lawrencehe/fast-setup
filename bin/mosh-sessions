@@ -14,7 +14,7 @@ echo
 # 检查 lsof 是否安装
 if ! command -v lsof >/dev/null 2>&1; then
     echo "错误：未安装 lsof。"
-    echo "请执行：sudo dnf install lsof"
+    echo "请执行：sudo apt-get install lsof  或  sudo dnf install lsof"
     exit 1
 fi
 
