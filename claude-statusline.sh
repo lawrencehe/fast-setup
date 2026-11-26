@@ -17,8 +17,14 @@ col() { local b=''; [ -n "$3" ] && b='1;'; printf '\033[%s38;5;%sm%s\033[0m' "$b
 
 # 进度条：bar 名称 百分比 色号 → "名称 ▓▓▓▓░░░░░░ 38%"
 # 每项固定一个颜色；≥85% 时进度条和数字整项变红
+# 百分比为空（拿不到数据）时显示空条和 "?%"
 bar() {
   local label=$1 pct w=10 n i out=''
+  if [ -z "$2" ]; then
+    for ((i = 0; i < w; i++)); do out+='░'; done
+    printf '%s %s %s' "$label" "$(col "$3" "$out")" '?%'
+    return
+  fi
   pct=$(printf '%.0f' "$2")
   [ "$pct" -gt 100 ] && pct=100
   n=$(( (pct * w + 50) / 100 ))
@@ -57,9 +63,10 @@ if [ -n "$b" ]; then
 fi
 
 # 用量：ctx 青、5h 黄、7d 蓝
-# 新会话在第一次 API 响应之前，这三个字段都是空的：ctx 当 0%，5h/7d 用上次缓存的值
+# 新会话在第一次 API 响应之前，这三个字段都是空的：ctx 显示 ?%，5h/7d 用上次缓存的值
 # （额度是账号级的，跨会话、跨项目通用）。缓存里记了重置时间，过了重置点就当 0%。
-p=$(g .context_window.used_percentage); add "$(bar ctx "${p:-0}" 73)"
+# 没有缓存也拿不到数据时（首次安装、API key 用户），同样显示空条和 ?%，三项始终都在。
+p=$(g .context_window.used_percentage); add "$(bar ctx "$p" 73)"
 
 RL_CACHE="$HOME/.claude/cache/statusline-ratelimits"
 f=$(g .rate_limits.five_hour.used_percentage); fr=$(g .rate_limits.five_hour.resets_at)
@@ -82,8 +89,8 @@ now=$(date +%s)
 [ "$f" = - ] && f=''; [ "$w" = - ] && w=''
 case "$fr" in ''|*[!0-9]*) ;; *) [ -n "$f" ] && [ "$fr" -le "$now" ] && f=0 ;; esac
 case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; esac
-[ -n "$f" ] && add "$(bar 5h "$f" 179)"
-[ -n "$w" ] && add "$(bar 7d "$w" 111)"
+add "$(bar 5h "$f" 179)"
+add "$(bar 7d "$w" 111)"
 
 [ "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" = 1 ] && add "$(col 140 '⚡Code Mode' b)"
 

@@ -123,8 +123,10 @@ Fable 5.2 · my-project · main* · ctx ▓░░░░░░░░░ 12% · 5h
 - **5h / 7d** — subscription rate-limit usage. Claude Code only reports these
   after the first response of a session, so the last values are cached in
   `~/.claude/cache/statusline-ratelimits` and shown in new sessions right away;
-  a value whose reset time has passed shows as 0%. API-key users have no such
-  limits and these two bars are simply hidden.
+  a value whose reset time has passed shows as 0%.
+- When a value is unavailable (before the first response of a session, on a
+  fresh install with no cache yet, or for API-key users who have no rate
+  limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.
 - **⚡Code Mode** — only when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` is set
 - **Account** — the logged-in email, read locally from `~/.claude.json`
 - A bar turns red at 85% or more.
