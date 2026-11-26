@@ -171,9 +171,12 @@ Fable 5.2 · my-project:main*↑1 · ctx █▌          12% · 5h ▍          
   git repository, the current directory's name is shown.
 - **ctx** — context window usage of the current session
 - **5h / 7d** — subscription rate-limit usage. Claude Code only reports these
-  after the first response of a session, so the last values are cached in
-  `~/.claude/cache/statusline-ratelimits` and shown in new sessions right away;
-  a value whose reset time has passed shows as 0%.
+  when a session gets a response, so they are shared between sessions through
+  `~/.claude/cache/statusline-ratelimits`: each run keeps whichever is newer, its
+  own value or the cached one (within the same limit window usage only grows, so
+  the higher one wins; otherwise the later window wins). New and idle sessions
+  therefore show the latest usage any session has seen. A value whose reset
+  time has passed shows as 0%.
 - **↻** — time until that limit resets (`↻42m`, `↻2h13m`, `↻3d4h`); left out
   when the reset time is unknown or has already passed
   The installer sets `"refreshInterval": 60` on the status line, so it re-runs
@@ -189,7 +192,8 @@ Fable 5.2 · my-project:main*↑1 · ctx █▌          12% · 5h ▍          
   shows at least one step. A bar turns red at 85% or more.
 - Everything is read locally — the session JSON Claude Code passes in,
   `~/.claude.json` and the local git repository. It makes no network or API
-  calls and uses no tokens; one run takes about 20 ms (one `jq`, two `git`).
+  calls and uses no tokens; one run takes under 20 ms and starts at most two
+  processes (one `jq`, one `git`).
 
 ## Repository layout
 

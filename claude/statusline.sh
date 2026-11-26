@@ -8,7 +8,7 @@
 #
 # 只做本地读取，不联网、不调用 API：会话信息来自 stdin，账号来自 ~/.claude.json，
 # git 状态来自本地仓库（↑↓ 对比的是本地记录的远程分支，即上次 fetch/pull/push 时的状态）。
-# 每次运行只启动 3 个外部进程（jq 一次、git 两次）；其余都用 bash 内建功能，不开子 shell。
+# 每次运行最多启动 2 个外部进程（jq、git 各一次，不在 git 仓库里时只有 jq）；其余都用 bash 内建功能，不开子 shell。
 
 LC_NUMERIC=C
 command -v jq >/dev/null 2>&1 || { printf 'statusline: jq missing'; exit 0; }
@@ -82,12 +82,16 @@ fi
 # 位置：在 git 仓库里显示 "仓库名:分支"，仓库名取当前目录所属仓库的顶层目录名。
 #   分支后：* 有未提交的改动；↑N 本地有 N 个提交没 push；↓N 远程有 N 个提交没 pull
 #   （按本地记录的远程分支算，不联网）。没有上游分支时不显示箭头；detached HEAD 时只显示仓库名。
-# 不在 git 仓库里显示当前目录名。
-top=$(git -C "${d:-.}" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)
+# 不在 git 仓库里（或 git 读不了这个仓库）显示当前目录名。
+# 仓库顶层由 bash 自己向上找 .git（目录或文件，后者是 worktree / submodule），不用另起 git 进程；
+# 找到了才运行一次 git status，不在仓库里则一次 git 都不调用。
+d=${d:-$PWD}
+top=$d
+while [ -n "$top" ] && [ ! -e "$top/.git" ]; do top=${top%/*}; done
+[ -z "$top" ] && [ -e /.git ] && top=/
+head=''
 if [ -n "$top" ]; then
-  name=${top%/}; name=${name##*/}
-  col 67 "${name:-/}"; loc=$R
-  head='' ab='' dirty=''
+  ab='' dirty=''
   # porcelain v2 先输出 "# branch.*" 头部，再输出改动；看到第一行改动就够了
   while IFS= read -r line; do
     case $line in
@@ -97,7 +101,11 @@ if [ -n "$top" ]; then
       *) dirty='*'; break ;;
     esac
   done < <(git -C "$top" --no-optional-locks status --porcelain=v2 --branch 2>/dev/null)
-  if [ -n "$head" ] && [ "$head" != '(detached)' ]; then
+fi
+if [ -n "$head" ]; then
+  name=${top%/}; name=${name##*/}
+  col 67 "${name:-/}"; loc=$R
+  if [ "$head" != '(detached)' ]; then
     b=$head$dirty
     if [ -n "$ab" ]; then   # "+2 -1"
       ahead=${ab%% *}; ahead=${ahead#+}; behind=${ab##*-}
@@ -107,7 +115,7 @@ if [ -n "$top" ]; then
     col 144 "$b"; loc+=$'\033[2m:\033[0m'$R
   fi
   add "$loc"
-elif [ -n "$d" ]; then
+else
   name=${d%/}; name=${name##*/}
   col 67 "${name:-/}"; add "$R"
 fi
@@ -118,26 +126,49 @@ now=${EPOCHSECONDS:-}
 case "$now" in ''|*[!0-9]*) now=$(date +%s) ;; esac
 
 # 用量：ctx 青、5h 黄、7d 蓝
-# 新会话在第一次 API 响应之前，这三个字段都是空的：ctx 显示 ?%，5h/7d 用上次缓存的值
-# （额度是账号级的，跨会话、跨项目通用）。缓存里记了重置时间，过了重置点就当 0%。
-# 没有缓存也拿不到数据时（首次安装、API key 用户），同样显示空条和 ?%，三项始终都在。
+# 5h/7d 只在会话收到 API 回复时才随 JSON 更新，闲着的会话手里是旧值。额度是账号级的，
+# 所以所有会话共用一份缓存，每次把 JSON 里的值和缓存里的值比一比，取较新的那份：
+#   - 重置时间相同（同一个额度窗口，相差 10 分钟内都算）：用量只增不减，取较大的；
+#   - 重置时间不同：中间重置过，取重置时间较晚的那份；
+#   - 只有一边有值：用那一边。
+# 这样闲着的会话也能显示别的会话刚拿到的用量。新会话在第一次 API 响应之前 JSON 里没有这些字段，
+# 直接用缓存。重置时间已过的当 0%。都拿不到时（首次安装、API key 用户）显示空条和 ?%。
 RL_CACHE="$HOME/.claude/cache/statusline-ratelimits"
 cf='' cfr='' cw='' cwr=''
 [ -r "$RL_CACHE" ] && read -r cf cfr cw cwr <"$RL_CACHE"
-if [ -n "$f" ] || [ -n "$w" ]; then
-  # 有新数据：缺的那一项沿用缓存；内容有变化才写回（先写临时文件再改名，多个会话同时写也不会读到半截）
-  [ -z "$f" ] && { f=$cf; fr=$cfr; }
-  [ -z "$w" ] && { w=$cw; wr=$cwr; }
-  new="${f:--} ${fr:--} ${w:--} ${wr:--}"
-  if [ "$new" != "$cf $cfr $cw $cwr" ]; then
-    [ -d "${RL_CACHE%/*}" ] || mkdir -p "${RL_CACHE%/*}" 2>/dev/null
-    printf '%s\n' "$new" >"$RL_CACHE.$$" 2>/dev/null && mv -f "$RL_CACHE.$$" "$RL_CACHE" 2>/dev/null
+[ "$cf" = - ] && cf=''; [ "$cfr" = - ] && cfr=''
+[ "$cw" = - ] && cw=''; [ "$cwr" = - ] && cwr=''
+
+# gt a b：非负小数 a > b 时返回 0（bash 只会整数比较，这里按整数部分 + 补齐的小数部分比）
+gt() {
+  local ai=${1%%.*} bi=${2%%.*} af bf
+  af=${1#"$ai"}; af=${af#.}; bf=${2#"$bi"}; bf=${bf#.}
+  [ "$ai" != "$bi" ] && { [ "$((10#${ai:-0}))" -gt "$((10#${bi:-0}))" ]; return; }
+  while [ ${#af} -lt ${#bf} ]; do af+=0; done
+  while [ ${#bf} -lt ${#af} ]; do bf+=0; done
+  [[ $af > $bf ]]
+}
+isnum() { case "$1" in ''|.*|*.|*[!0-9.]*|*.*.*) return 1 ;; esac; }
+# pick JSON值 JSON重置 缓存值 缓存重置 → PV PR（取较新的一份）
+pick() {
+  PV=$1 PR=$2
+  isnum "$3" || return           # 缓存里没有可用的值
+  if ! isnum "$1"; then PV=$3 PR=$4; return; fi
+  isnum "$2" && isnum "$4" || return
+  local diff=$(( $4 - $2 ))
+  if [ "$diff" -gt 600 ]; then PV=$3 PR=$4                  # 缓存的窗口更晚
+  elif [ "$diff" -ge -600 ] && gt "$3" "$1"; then PV=$3 PR=$4  # 同一窗口，缓存用量更大
   fi
-else
-  f=$cf fr=$cfr w=$cw wr=$cwr
+}
+pick "$f" "$fr" "$cf" "$cfr"; f=$PV fr=$PR
+pick "$w" "$wr" "$cw" "$cwr"; w=$PV wr=$PR
+# 结果和缓存不同才写回（先写临时文件再改名，多个会话同时写也不会读到半截）
+new="${f:--} ${fr:--} ${w:--} ${wr:--}"
+if [ -n "$f$w" ] && [ "$new" != "${cf:--} ${cfr:--} ${cw:--} ${cwr:--}" ]; then
+  [ -d "${RL_CACHE%/*}" ] || mkdir -p "${RL_CACHE%/*}" 2>/dev/null
+  printf '%s\n' "$new" >"$RL_CACHE.$$" 2>/dev/null && mv -f "$RL_CACHE.$$" "$RL_CACHE" 2>/dev/null
 fi
-# 把 "-"（没有值）还原成空；重置时间已过的，用量归零
-[ "$f" = - ] && f=''; [ "$w" = - ] && w=''
+# 重置时间已过的，用量归零
 case "$fr" in ''|*[!0-9]*) ;; *) [ -n "$f" ] && [ "$fr" -le "$now" ] && f=0 ;; esac
 case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; esac
 
