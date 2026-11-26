@@ -173,6 +173,10 @@ Fable 5.2 · my-project:main* · ctx █▌          12% · 5h ▍           3% 
   a value whose reset time has passed shows as 0%.
 - **↻** — time until that limit resets (`↻42m`, `↻2h13m`, `↻3d4h`); left out
   when the reset time is unknown or has already passed
+  The installer sets `"refreshInterval": 600` on the status line, so it re-runs
+  every 10 minutes and the countdown keeps moving while the session is idle
+  (it only runs the local script — no API calls, no tokens). A
+  `refreshInterval` you already set is left alone.
 - When a value is unavailable (before the first response of a session, on a
   fresh install with no cache yet, or for API-key users who have no rate
   limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.

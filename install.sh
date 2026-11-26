@@ -83,8 +83,11 @@ post_mosh_sessions() {
 }
 
 # Point Claude Code at the status line, unless another statusLine is configured.
+# refreshInterval re-runs it every 10 minutes so the reset countdowns keep moving
+# while the session is idle (runs the local script only; no API calls or tokens).
+# A refreshInterval the user already set is left alone.
 post_statusline() {
-  local settings="${HOME}/.claude/settings.json" cmd="~/.claude/statusline.sh" current
+  local settings="${HOME}/.claude/settings.json" cmd="~/.claude/statusline.sh" current refresh=600
   command -v jq >/dev/null 2>&1 || { warn "statusline: jq is missing; install jq (the status line needs it too), then re-run"; return 0; }
   [[ -s "$settings" ]] || echo '{}' >"$settings"
   if ! current="$(jq -r '.statusLine.command // empty' "$settings" 2>/dev/null)"; then
@@ -92,11 +95,17 @@ post_statusline() {
     return 0
   fi
   if [[ -z "$current" ]]; then
-    jq --arg c "$cmd" '.statusLine = {type: "command", command: $c}' "$settings" >"${settings}.tmp" \
-      && mv "${settings}.tmp" "$settings"
+    jq --arg c "$cmd" --argjson r "$refresh" '.statusLine = {type: "command", command: $c, refreshInterval: $r}' \
+      "$settings" >"${settings}.tmp" && mv "${settings}.tmp" "$settings"
     ok "statusline configured in ${settings/#$HOME/\~} (takes effect in new sessions)"
   elif [[ "$current" == "$cmd" || "$current" == "${HOME}/.claude/statusline.sh" ]]; then
-    ok "statusline already configured in ${settings/#$HOME/\~}"
+    if [[ "$(jq '.statusLine | has("refreshInterval")' "$settings")" == false ]]; then
+      jq --argjson r "$refresh" '.statusLine.refreshInterval = $r' "$settings" >"${settings}.tmp" \
+        && mv "${settings}.tmp" "$settings"
+      ok "statusline refreshInterval set to ${refresh}s in ${settings/#$HOME/\~} (takes effect in new sessions)"
+    else
+      ok "statusline already configured in ${settings/#$HOME/\~}"
+    fi
   else
     warn "statusline: settings.json already uses another status line (${current}); left unchanged"
   fi
