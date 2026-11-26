@@ -115,7 +115,7 @@ jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' ~/.clau
 Start a new Claude Code session and it shows one line:
 
 ```
-Fable 5.2 · my-project · main* · ctx ▓▓░░░░░░░░░░░░░░ 12% · 5h ▓░░░░░░░░░░░░░░░ 3% · 7d ▓▓▓░░░░░░░░░░░░░ 19% · you@example.com
+Fable 5.2 · my-project · main* · ctx ▓░░░░░░░░░ 12% · 5h ▓░░░░░░░░░ 3% · 7d ▓▓░░░░░░░░ 19% · you@example.com
 ```
 
 - **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
