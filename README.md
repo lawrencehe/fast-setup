@@ -97,7 +97,40 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   outdated tools are upgraded to the latest available version, and already-latest
   tools are skipped. Maven is pinned to 3.9.9.
 
+## Claude Code status line
+
+[`claude-statusline.sh`](claude-statusline.sh) is a standalone status line for
+[Claude Code](https://claude.ai). It is not installed by `run.sh`; install it
+separately on any Linux or macOS machine that has `bash`, `jq` and `git`:
+
+```bash
+mkdir -p ~/.claude
+curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/claude-statusline.sh -o ~/.claude/statusline.sh
+chmod +x ~/.claude/statusline.sh
+[ -f ~/.claude/settings.json ] || echo '{}' > ~/.claude/settings.json
+jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' ~/.claude/settings.json > ~/.claude/settings.json.tmp \
+  && mv ~/.claude/settings.json.tmp ~/.claude/settings.json
+```
+
+Start a new Claude Code session and it shows one line:
+
+```
+Fable 5.2 · my-project · main* · ctx ▓░░░░░░░ 12% · 5h ░░░░░░░░ 3% · 7d ▓▓░░░░░░ 19% · you@example.com
+```
+
+- **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
+- **ctx** — context window usage of the current session
+- **5h / 7d** — subscription rate-limit usage. Claude Code only reports these
+  after the first response of a session, so the last values are cached in
+  `~/.claude/cache/statusline-ratelimits` and shown in new sessions right away;
+  a value whose reset time has passed shows as 0%. API-key users have no such
+  limits and these two bars are simply hidden.
+- **⚡Code Mode** — only when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` is set
+- **Account** — the logged-in email, read locally from `~/.claude.json`
+- A bar turns red at 85% or more.
+
 ## Repository layout
 
 - [`run.sh`](run.sh) — the setup script
+- [`claude-statusline.sh`](claude-statusline.sh) — Claude Code status line (see below)
 - [`mosh-sessions.sh`](mosh-sessions.sh) — mosh 会话巡检脚本：查看运行中的 mosh-server 进程及其 UDP socket
