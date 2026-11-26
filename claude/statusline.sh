@@ -38,14 +38,13 @@ col() { local b=''; [ -n "$3" ] && b='1;'; printf -v R '\033[%s38;5;%sm%s\033[0m
 # 12 格宽，暗色背景当槽，前景色填充；最后一格用八分之一块（▏▎▍▌▋▊▉），共 96 级、每级约 1.04%
 # 每项固定一个颜色；≥85% 时进度条和数字整项变红
 # 百分比为空（拿不到数据）时显示空槽和 "?%"
-# 百分比固定占 4 列、右对齐（"  5%"、" 37%"、"100%"），数字位数变了后面的内容也不会跟着挪
 BAR_TRACK=237   # 槽的背景色（256 色色号）
 BAR_PART=('' '▏' '▎' '▍' '▌' '▋' '▊' '▉')
 bar() {
   local label=$1 fg=$3 pct w=12 lv full rem i out='' l n
   if [ -z "$2" ]; then
     for ((i = 0; i < w; i++)); do out+=' '; done
-    printf -v R '%s \033[48;5;%sm%s\033[0m %s' "$label" "$BAR_TRACK" "$out" '  ?%'
+    printf -v R '%s \033[48;5;%sm%s\033[0m %s' "$label" "$BAR_TRACK" "$out" '?%'
     return
   fi
   printf -v pct '%.0f' "$2" 2>/dev/null || pct=0
@@ -59,12 +58,11 @@ bar() {
     elif [ "$i" -eq "$full" ] && [ "$rem" -gt 0 ]; then out+=${BAR_PART[$rem]}
     else out+=' '; fi
   done
-  printf -v n '%3s%%' "$pct"
-  l=$label
+  l=$label n="$pct%"
   if [ "$pct" -ge 85 ]; then
     fg=167
     col 167 "$label"; l=$R
-    col 167 "$n"; n=$R
+    col 167 "$pct%"; n=$R
   fi
   printf -v R '%s \033[38;5;%s;48;5;%sm%s\033[0m %s' "$l" "$fg" "$BAR_TRACK" "$out" "$n"
 }
@@ -176,31 +174,22 @@ fi
 case "$fr" in ''|*[!0-9]*) ;; *) [ -n "$f" ] && [ "$fr" -le "$now" ] && f=0 ;; esac
 case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; esac
 
-# 重置倒计时：until_reset 时间戳 宽度 → R="   ↻42m" / " ↻2h13m" / "  ↻3d4h"
-# 倒计时每分钟都在变，所以固定占 宽度 列（左边补空格），后面的内容不会跟着跳。
-# 5h 最长 "4h59m"（5 列），7d 最长 "23h59m"（6 列）。没有时间或已过期时补同样宽的空格。
+# 重置倒计时：until 时间戳 → R=" ↻42m" / " ↻2h13m" / " ↻3d4h"；没有时间或已过期时 R 为空
 until_reset() {
-  local t=$1 d=''
-  case "$t" in ''|*[!0-9]*) ;; *)
-    d=$(( t - now ))
-    if   [ "$d" -le 0 ];     then d=''
-    elif [ "$d" -lt 3600 ];  then d="$(( (d + 59) / 60 ))m"
-    elif [ "$d" -lt 86400 ]; then d="$(( d / 3600 ))h$(( d % 3600 / 60 ))m"
-    else                          d="$(( d / 86400 ))d$(( d % 86400 / 3600 ))h"; fi ;;
-  esac
-  # 补位只用 ASCII 空格计算（d 全是 ASCII），"↻" 另外拼，避免多字节字符算错宽度
-  local pad
-  if [ -n "$d" ]; then
-    printf -v pad '%*s' "$(( $2 - ${#d} + 1 ))" ''
-    col 245 "↻$d"; R="$pad$R"
-  else
-    printf -v R '%*s' "$(( $2 + 2 ))" ''
-  fi
+  local t=$1 d
+  R=''
+  case "$t" in ''|*[!0-9]*) return ;; esac
+  d=$(( t - now ))
+  [ "$d" -le 0 ] && return
+  if   [ "$d" -lt 3600 ];  then d="$(( (d + 59) / 60 ))m"
+  elif [ "$d" -lt 86400 ]; then d="$(( d / 3600 ))h$(( d % 3600 / 60 ))m"
+  else                          d="$(( d / 86400 ))d$(( d % 86400 / 3600 ))h"; fi
+  col 245 "↻$d"; R=" $R"
 }
 
 bar ctx "$p" 73; add "$R"
-bar 5h "$f" 179; x=$R; until_reset "$fr" 5; add "$x$R"
-bar 7d "$w" 111; x=$R; until_reset "$wr" 6; add "$x$R"
+bar 5h "$f" 179; x=$R; until_reset "$fr"; add "$x$R"
+bar 7d "$w" 111; x=$R; until_reset "$wr"; add "$x$R"
 
 [ -n "$acct" ] && { col 245 "$acct"; add "$R"; }
 
