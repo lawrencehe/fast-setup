@@ -22,6 +22,8 @@ bar() {
   pct=$(printf '%.0f' "$2")
   [ "$pct" -gt 100 ] && pct=100
   n=$(( (pct * w + 50) / 100 ))
+  # 一格是 12.5%，四舍五入会让 1%~6% 显示成空条；只要不是 0 就至少亮一格
+  [ "$pct" -gt 0 ] && [ "$n" -lt 1 ] && n=1
   for ((i = 0; i < w; i++)); do
     if [ "$i" -lt "$n" ]; then out+='▓'; else out+='░'; fi
   done
