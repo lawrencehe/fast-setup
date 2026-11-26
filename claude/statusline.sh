@@ -174,16 +174,19 @@ fi
 case "$fr" in ''|*[!0-9]*) ;; *) [ -n "$f" ] && [ "$fr" -le "$now" ] && f=0 ;; esac
 case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; esac
 
-# 重置倒计时：until 时间戳 → R=" ↻42m" / " ↻2h13m" / " ↻3d4h"；没有时间或已过期时 R 为空
+# 重置倒计时：until 时间戳 → R=" ↻42m" / " ↻08m" / " ↻2h05m" / " ↻3d4h"；没有时间或已过期时 R 为空
+# 分钟固定两位（08m、1h00m），每分钟跳动时长度不变；5h 倒计时只在 1h00m → 59m 时变短一次
 until_reset() {
   local t=$1 d
   R=''
   case "$t" in ''|*[!0-9]*) return ;; esac
   d=$(( t - now ))
   [ "$d" -le 0 ] && return
-  if   [ "$d" -lt 3600 ];  then d="$(( (d + 59) / 60 ))m"
-  elif [ "$d" -lt 86400 ]; then d="$(( d / 3600 ))h$(( d % 3600 / 60 ))m"
-  else                          d="$(( d / 86400 ))d$(( d % 86400 / 3600 ))h"; fi
+  # 不到一天：按分钟向上取整（剩 30 秒也显示 01m），再拆成小时和分钟
+  local m=$(( (d + 59) / 60 ))
+  if   [ "$m" -lt 60 ];    then printf -v d '%02dm' "$m"
+  elif [ "$m" -lt 1440 ];  then printf -v d '%dh%02dm' "$(( m / 60 ))" "$(( m % 60 ))"
+  else                          d="$(( m / 1440 ))d$(( m % 1440 / 60 ))h"; fi
   col 245 "↻$d"; R=" $R"
 }
 
