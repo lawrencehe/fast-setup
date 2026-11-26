@@ -160,10 +160,12 @@ there (then it leaves the setting alone and warns).
 Start a new Claude Code session and it shows one line:
 
 ```
-Fable 5.2 · my-project · main* · ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h · you@example.com
+Fable 5.2 · my-project:main* · ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h · you@example.com
 ```
 
-- **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
+- **Model**, then **repository:branch** — the name of the git repository the
+  current directory belongs to, and its branch (`*` when there are uncommitted
+  changes). Outside a git repository, the current directory's name is shown.
 - **ctx** — context window usage of the current session
 - **5h / 7d** — subscription rate-limit usage. Claude Code only reports these
   after the first response of a session, so the last values are cached in

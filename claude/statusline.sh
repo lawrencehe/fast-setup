@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code 状态栏：模型 · 目录 · git 分支 · 上下文 · 5h/7d 额度（带重置倒计时） · 登录账号 · ⚡（Code Mode）
+# Claude Code 状态栏：模型 · 仓库名:分支（非 git 仓库为目录名） · 上下文 · 5h/7d 额度（带重置倒计时） · 登录账号 · ⚡（Code Mode）
 # stdin 是 Claude Code 传来的会话 JSON，输出一行文字。颜色用 256 色里偏柔和的色号。
 # 依赖：bash、jq、git。Linux 和 macOS 都能用。
 # 安装：curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- statusline
@@ -63,12 +63,20 @@ if [ -n "$m" ]; then
   add "$(col "$mc" "$m" b)"
 fi
 
-d=$(g .workspace.current_dir); [ -n "$d" ] && add "$(col 67 "$(basename "$d")")"
-
-b=$(git -C "${d:-.}" --no-optional-locks branch --show-current 2>/dev/null)
-if [ -n "$b" ]; then
-  [ -n "$(git -C "${d:-.}" --no-optional-locks status --porcelain 2>/dev/null)" ] && b="$b*"
-  add "$(col 144 "$b")"
+# 位置：在 git 仓库里显示 "仓库名:分支"（仓库名取当前目录所属仓库的顶层目录名，
+# 有未提交改动时分支后加 *，detached HEAD 时只显示仓库名）；不在 git 仓库里显示当前目录名
+d=$(g .workspace.current_dir)
+top=$(git -C "${d:-.}" --no-optional-locks rev-parse --show-toplevel 2>/dev/null)
+if [ -n "$top" ]; then
+  loc=$(col 67 "$(basename "$top")")
+  b=$(git -C "$top" --no-optional-locks branch --show-current 2>/dev/null)
+  if [ -n "$b" ]; then
+    [ -n "$(git -C "$top" --no-optional-locks status --porcelain 2>/dev/null)" ] && b="$b*"
+    loc+=$'\033[2m:\033[0m'"$(col 144 "$b")"
+  fi
+  add "$loc"
+elif [ -n "$d" ]; then
+  add "$(col 67 "$(basename "$d")")"
 fi
 
 # 用量：ctx 青、5h 黄、7d 蓝
