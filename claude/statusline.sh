@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Claude Code 状态栏，两行（一行放不下时窄终端会截断）：
-#   第 1 行：模型 · 目录 · git 分支 · Code Mode · 登录账号
-#   第 2 行：上下文 · 5h/7d 额度（带重置倒计时）
-# stdin 是 Claude Code 传来的会话 JSON。颜色用 256 色里偏柔和的色号。
+# Claude Code 状态栏：模型 · 目录 · git 分支 · 上下文 · 5h/7d 额度（带重置倒计时） · 登录账号 · ⚡（Code Mode）
+# stdin 是 Claude Code 传来的会话 JSON，输出一行文字。颜色用 256 色里偏柔和的色号。
 # 依赖：bash、jq、git。Linux 和 macOS 都能用。
 # 安装：curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- statusline
 #   （或手动放到 ~/.claude/statusline.sh 并 chmod +x，在 ~/.claude/settings.json 里加
@@ -111,15 +109,15 @@ until_reset() {
   printf ' %s' "$(col 245 "↻$d")"
 }
 
-[ "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" = 1 ] && add "$(col 140 '⚡Code Mode' b)"
+p=$(g .context_window.used_percentage); add "$(bar ctx "$p" 73)"
+add "$(bar 5h "$f" 179)$(until_reset "$fr")"
+add "$(bar 7d "$w" 111)$(until_reset "$wr")"
 
 # 登录账号：取自 ~/.claude.json 的 oauthAccount（非公开接口，以后可能变）
 acct=$(jq -r '.oauthAccount.emailAddress // empty' "$HOME/.claude.json" 2>/dev/null)
 [ -n "$acct" ] && add "$(col 245 "$acct")"
 
-line1=$s; s=''
-p=$(g .context_window.used_percentage); add "$(bar ctx "$p" 73)"
-add "$(bar 5h "$f" 179)$(until_reset "$fr")"
-add "$(bar 7d "$w" 111)$(until_reset "$wr")"
+# Code Mode 只显示一个图标，放在最后
+[ "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" = 1 ] && add "$(col 140 '⚡' b)"
 
-printf '%s\n%s' "$line1" "$s"
+printf '%s' "$s"

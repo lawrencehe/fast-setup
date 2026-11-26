@@ -157,12 +157,10 @@ mosh 会话巡检：列出运行中的 `mosh-server` 进程、其 UDP socket，�
 `~/.claude/settings.json`, unless another status line is already configured
 there (then it leaves the setting alone and warns).
 
-Start a new Claude Code session and it shows two lines, so it still fits in a
-narrow (80-column) terminal:
+Start a new Claude Code session and it shows one line:
 
 ```
-Fable 5.2 · my-project · main* · you@example.com
-ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h
+Fable 5.2 · my-project · main* · ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h · you@example.com
 ```
 
 - **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
@@ -176,8 +174,8 @@ ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         
 - When a value is unavailable (before the first response of a session, on a
   fresh install with no cache yet, or for API-key users who have no rate
   limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.
-- **⚡Code Mode** — only when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` is set
 - **Account** — the logged-in email, read locally from `~/.claude.json`
+- **⚡** — Code Mode, shown last and only when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` is set
 - Each bar is 12 characters wide on a dark track; the last cell uses ⅛-block
   characters (`▏▎▍▌▋▊▉`), so a bar has 96 steps of about 1%. Any non-zero usage
   shows at least one step. A bar turns red at 85% or more.
