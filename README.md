@@ -157,10 +157,12 @@ mosh 会话巡检：列出运行中的 `mosh-server` 进程、其 UDP socket，�
 `~/.claude/settings.json`, unless another status line is already configured
 there (then it leaves the setting alone and warns).
 
-Start a new Claude Code session and it shows one line:
+Start a new Claude Code session and it shows two lines, so it still fits in a
+narrow (80-column) terminal:
 
 ```
-Fable 5.2 · my-project · main* · ctx █▌          12% · 5h ▍           3% · 7d ██▎         19% · you@example.com
+Fable 5.2 · my-project · main* · you@example.com
+ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h
 ```
 
 - **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
@@ -169,6 +171,8 @@ Fable 5.2 · my-project · main* · ctx █▌          12% · 5h ▍           
   after the first response of a session, so the last values are cached in
   `~/.claude/cache/statusline-ratelimits` and shown in new sessions right away;
   a value whose reset time has passed shows as 0%.
+- **↻** — time until that limit resets (`↻42m`, `↻2h13m`, `↻3d4h`); left out
+  when the reset time is unknown or has already passed
 - When a value is unavailable (before the first response of a session, on a
   fresh install with no cache yet, or for API-key users who have no rate
   limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.

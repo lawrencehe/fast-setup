@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Claude Code 状态栏：模型 · 目录 · git 分支 · 上下文 · 5h/7d 额度 · Code Mode · 登录账号
-# stdin 是 Claude Code 传来的会话 JSON，输出一行文字。颜色用 256 色里偏柔和的色号。
+# Claude Code 状态栏，两行（一行放不下时窄终端会截断）：
+#   第 1 行：模型 · 目录 · git 分支 · Code Mode · 登录账号
+#   第 2 行：上下文 · 5h/7d 额度（带重置倒计时）
+# stdin 是 Claude Code 传来的会话 JSON。颜色用 256 色里偏柔和的色号。
 # 依赖：bash、jq、git。Linux 和 macOS 都能用。
 # 安装：curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/install.sh | bash -s -- statusline
 #   （或手动放到 ~/.claude/statusline.sh 并 chmod +x，在 ~/.claude/settings.json 里加
@@ -75,8 +77,6 @@ fi
 # 新会话在第一次 API 响应之前，这三个字段都是空的：ctx 显示 ?%，5h/7d 用上次缓存的值
 # （额度是账号级的，跨会话、跨项目通用）。缓存里记了重置时间，过了重置点就当 0%。
 # 没有缓存也拿不到数据时（首次安装、API key 用户），同样显示空条和 ?%，三项始终都在。
-p=$(g .context_window.used_percentage); add "$(bar ctx "$p" 73)"
-
 RL_CACHE="$HOME/.claude/cache/statusline-ratelimits"
 f=$(g .rate_limits.five_hour.used_percentage); fr=$(g .rate_limits.five_hour.resets_at)
 w=$(g .rate_limits.seven_day.used_percentage); wr=$(g .rate_limits.seven_day.resets_at)
@@ -98,8 +98,18 @@ now=$(date +%s)
 [ "$f" = - ] && f=''; [ "$w" = - ] && w=''
 case "$fr" in ''|*[!0-9]*) ;; *) [ -n "$f" ] && [ "$fr" -le "$now" ] && f=0 ;; esac
 case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; esac
-add "$(bar 5h "$f" 179)"
-add "$(bar 7d "$w" 111)"
+
+# 重置倒计时：until 时间戳 → " ↻42m" / " ↻2h13m" / " ↻3d4h"；没有时间或已过期时不输出
+until_reset() {
+  local t=$1 d
+  case "$t" in ''|*[!0-9]*) return ;; esac
+  d=$(( t - now ))
+  [ "$d" -le 0 ] && return
+  if   [ "$d" -lt 3600 ];  then d="$(( (d + 59) / 60 ))m"
+  elif [ "$d" -lt 86400 ]; then d="$(( d / 3600 ))h$(( d % 3600 / 60 ))m"
+  else                          d="$(( d / 86400 ))d$(( d % 86400 / 3600 ))h"; fi
+  printf ' %s' "$(col 245 "↻$d")"
+}
 
 [ "$CLAUDE_CODE_EXPERIMENTAL_CODE_MODE" = 1 ] && add "$(col 140 '⚡Code Mode' b)"
 
@@ -107,4 +117,9 @@ add "$(bar 7d "$w" 111)"
 acct=$(jq -r '.oauthAccount.emailAddress // empty' "$HOME/.claude.json" 2>/dev/null)
 [ -n "$acct" ] && add "$(col 245 "$acct")"
 
-printf '%s' "$s"
+line1=$s; s=''
+p=$(g .context_window.used_percentage); add "$(bar ctx "$p" 73)"
+add "$(bar 5h "$f" 179)$(until_reset "$fr")"
+add "$(bar 7d "$w" 111)$(until_reset "$wr")"
+
+printf '%s\n%s' "$line1" "$s"
