@@ -15,28 +15,36 @@ add() { s="${s:+$s$SEP}$1"; }
 # 上色：col 色号(0-255) 文字 [bold]
 col() { local b=''; [ -n "$3" ] && b='1;'; printf '\033[%s38;5;%sm%s\033[0m' "$b" "$1" "$2"; }
 
-# 进度条：bar 名称 百分比 色号 → "名称 ▓▓▓▓░░░░░░ 38%"
+# 进度条：bar 名称 百分比 色号 → "名称 ███▊      38%"
+# 10 格宽，暗色背景当槽，前景色填充；最后一格用八分之一块（▏▎▍▌▋▊▉），共 80 级、每级 1.25%
 # 每项固定一个颜色；≥85% 时进度条和数字整项变红
-# 百分比为空（拿不到数据）时显示空条和 "?%"
+# 百分比为空（拿不到数据）时显示空槽和 "?%"
+BAR_TRACK=237   # 槽的背景色（256 色色号）
+BAR_PART=('' '▏' '▎' '▍' '▌' '▋' '▊' '▉')
 bar() {
-  local label=$1 pct w=10 n i out=''
+  local label=$1 fg=$3 pct w=10 lv full rem i out=''
   if [ -z "$2" ]; then
-    for ((i = 0; i < w; i++)); do out+='░'; done
-    printf '%s %s %s' "$label" "$(col "$3" "$out")" '?%'
+    for ((i = 0; i < w; i++)); do out+=' '; done
+    printf '%s \033[48;5;%sm%s\033[0m %s' "$label" "$BAR_TRACK" "$out" '?%'
     return
   fi
   pct=$(printf '%.0f' "$2")
   [ "$pct" -gt 100 ] && pct=100
-  n=$(( (pct * w + 50) / 100 ))
-  # 一格是 10%，四舍五入会让 1%~4% 显示成空条；只要不是 0 就至少亮一格
-  [ "$pct" -gt 0 ] && [ "$n" -lt 1 ] && n=1
+  lv=$(( (pct * w * 8 + 50) / 100 ))
+  # 只要不是 0 就至少亮八分之一格
+  [ "$pct" -gt 0 ] && [ "$lv" -lt 1 ] && lv=1
+  full=$(( lv / 8 )); rem=$(( lv % 8 ))
   for ((i = 0; i < w; i++)); do
-    if [ "$i" -lt "$n" ]; then out+='▓'; else out+='░'; fi
+    if [ "$i" -lt "$full" ]; then out+='█'
+    elif [ "$i" -eq "$full" ] && [ "$rem" -gt 0 ]; then out+=${BAR_PART[$rem]}
+    else out+=' '; fi
   done
+  [ "$pct" -ge 85 ] && fg=167
+  out=$(printf '\033[38;5;%s;48;5;%sm%s\033[0m' "$fg" "$BAR_TRACK" "$out")
   if [ "$pct" -ge 85 ]; then
-    printf '%s' "$(col 167 "$label $out $pct%")"
+    printf '%s %s %s' "$(col 167 "$label")" "$out" "$(col 167 "$pct%")"
   else
-    printf '%s %s %s' "$label" "$(col "$3" "$out")" "$pct%"
+    printf '%s %s %s' "$label" "$out" "$pct%"
   fi
 }
 

@@ -115,7 +115,7 @@ jq '.statusLine = {type: "command", command: "~/.claude/statusline.sh"}' ~/.clau
 Start a new Claude Code session and it shows one line:
 
 ```
-Fable 5.2 · my-project · main* · ctx ▓░░░░░░░░░ 12% · 5h ▓░░░░░░░░░ 3% · 7d ▓▓░░░░░░░░ 19% · you@example.com
+Fable 5.2 · my-project · main* · ctx █▎         12% · 5h ▎          3% · 7d █▉         19% · you@example.com
 ```
 
 - **Model**, **directory**, **git branch** (`*` when there are uncommitted changes)
@@ -129,7 +129,9 @@ Fable 5.2 · my-project · main* · ctx ▓░░░░░░░░░ 12% · 5h
   limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.
 - **⚡Code Mode** — only when `CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1` is set
 - **Account** — the logged-in email, read locally from `~/.claude.json`
-- A bar turns red at 85% or more.
+- Each bar is 10 characters wide on a dark track; the last cell uses ⅛-block
+  characters (`▏▎▍▌▋▊▉`), so a bar has 80 steps of 1.25%. Any non-zero usage
+  shows at least one step. A bar turns red at 85% or more.
 
 ## Repository layout
 
