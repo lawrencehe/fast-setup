@@ -132,5 +132,5 @@ Fable 5.2 · my-project · main* · ctx ▓░░░░░░░ 12% · 5h ░�
 ## Repository layout
 
 - [`run.sh`](run.sh) — the setup script
-- [`claude-statusline.sh`](claude-statusline.sh) — Claude Code status line (see below)
+- [`claude-statusline.sh`](claude-statusline.sh) — Claude Code status line (see [above](#claude-code-status-line))
 - [`mosh-sessions.sh`](mosh-sessions.sh) — mosh 会话巡检脚本：查看运行中的 mosh-server 进程及其 UDP socket
