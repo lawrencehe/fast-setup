@@ -39,7 +39,7 @@ if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 fi
 
-TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d /tmp/fast-setup.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 # Fetch repo file $1 into $2, from the local clone or GitHub.

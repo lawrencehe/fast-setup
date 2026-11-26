@@ -280,7 +280,7 @@ esac
 log "Maven ${MAVEN_VERSION}"
 CURRENT_MAVEN="$(mvn -version 2>/dev/null | head -1 | awk '{print $3}' || true)"
 if [[ "$CURRENT_MAVEN" != "$MAVEN_VERSION" ]]; then
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
   curl -fL "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o "$tmp/maven.tgz"
   sudo rm -rf "/opt/apache-maven-${MAVEN_VERSION}"
   sudo tar -xzf "$tmp/maven.tgz" -C /opt
@@ -354,7 +354,7 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
 done
 install_pi_native() {
   local tmp rc=0
-  tmp="$(mktemp)"
+  tmp="$(mktemp /tmp/fast-setup.XXXXXX)"
   if curl -fsSL https://pi.dev/install.sh -o "$tmp"; then
     # Detach /dev/tty so pi.dev/install.sh chooses the default action non-interactively
     # (fresh install, migrate from legacy npm install, or reinstall).
@@ -470,7 +470,7 @@ case "$PM" in
     ts_family="ubuntu"; ts_fallback="noble"
     if [[ "${ID:-}" == debian ]]; then ts_family="debian"; ts_fallback="bookworm"; fi
     ts_codename="$(ts_apt_codename "$ts_family" "$ts_fallback")"
-    tmp="$(mktemp -d)"
+    tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
     curl -fsSL "${TS_BASE}/${ts_family}/${ts_codename}.noarmor.gpg" -o "$tmp/keyring.gpg"
     # Same content as the official <codename>.tailscale-keyring.list
     printf '# Tailscale packages for %s %s\ndeb [signed-by=%s] %s/%s %s main\n' \
@@ -576,7 +576,7 @@ log "kubectl latest stable"
 KUBE_LATEST="$(curl -fsSL https://dl.k8s.io/release/stable.txt)"
 KUBE_CURRENT="$(kubectl version --client -o json 2>/dev/null | jq -r '.clientVersion.gitVersion // empty' || true)"
 if [[ "$KUBE_CURRENT" != "$KUBE_LATEST" ]]; then
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
   curl -fL "https://dl.k8s.io/release/${KUBE_LATEST}/bin/linux/${ARCH}/kubectl" -o "$tmp/kubectl"
   curl -fL "https://dl.k8s.io/release/${KUBE_LATEST}/bin/linux/${ARCH}/kubectl.sha256" -o "$tmp/kubectl.sha256"
   echo "$(cat "$tmp/kubectl.sha256")  $tmp/kubectl" | sha256sum --check
@@ -591,7 +591,11 @@ fi
 # ---------------------------------------------------------------------------
 log "Alibaba Cloud CLI"
 # Official installer installs/updates the CLI and detects Linux architecture.
-curl -fsSL https://aliyuncli.alicdn.com/install.sh | sudo bash
+# It downloads and unpacks the tarball in the current directory, so run it
+# inside a temp dir under /tmp instead of wherever run.sh was started.
+tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
+(cd "$tmp" && curl -fsSL https://aliyuncli.alicdn.com/install.sh | sudo bash)
+sudo rm -rf "$tmp"
 
 # ---------------------------------------------------------------------------
 # rclone (official installer: installs or upgrades to the latest stable)
@@ -615,7 +619,7 @@ log "lazygit latest"
 LG_LATEST="$(curl -fsSL https://api.github.com/repos/jesseduffield/lazygit/releases/latest | jq -r '.tag_name' | sed 's/^v//')"
 LG_CURRENT="$(lazygit --version 2>/dev/null | grep -oE ', version=[^,]+' | cut -d= -f2 || true)"
 if [[ "$LG_CURRENT" != "$LG_LATEST" ]]; then
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
   curl -fL "https://github.com/jesseduffield/lazygit/releases/download/v${LG_LATEST}/lazygit_${LG_LATEST}_linux_${LG_ARCH}.tar.gz" -o "$tmp/lazygit.tgz"
   tar -xzf "$tmp/lazygit.tgz" -C "$tmp" lazygit
   sudo install -m 0755 "$tmp/lazygit" /usr/local/bin/lazygit
@@ -628,7 +632,7 @@ fi
 # Ghostty terminfo
 # ---------------------------------------------------------------------------
 log "Ghostty terminfo"
-tmp="$(mktemp)"
+tmp="$(mktemp /tmp/fast-setup.XXXXXX)"
 cat >"$tmp" <<'TERMINFO'
 # Reconstructed via infocmp from file: /Applications/Ghostty.app/Contents/Resources/terminfo/78/xterm-ghostty
 xterm-ghostty|ghostty|Ghostty,
@@ -817,7 +821,7 @@ update_pi() {
     return 0
   fi
   local tmp rc=0
-  tmp="$(mktemp)"
+  tmp="$(mktemp /tmp/fast-setup.XXXXXX)"
   if curl -fsSL https://pi.dev/install.sh -o "$tmp"; then
     if command -v setsid >/dev/null 2>&1 && setsid --wait true 2>/dev/null; then
       setsid --wait sh "$tmp" </dev/null || rc=$?

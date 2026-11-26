@@ -38,6 +38,10 @@
   `set -Eeuo pipefail`，注意处理安装脚本的非 0 退出码）。
 - 新增工具时同步更新 `README.md` 的 “What gets installed” 列表和
   `run.sh` 末尾的 `run_ver` 版本输出。
+- **下载的文件一律放在 `/tmp`**：用 `mktemp -d /tmp/fast-setup.XXXXXX`
+  建临时目录（不用裸 `mktemp`，避免受 `$TMPDIR` 影响），用完删掉。
+  会把文件下载到当前目录的官方脚本（如阿里云 CLI 的 `install.sh`），
+  要先 `cd` 到这个临时目录再运行，不能在用户家目录或仓库目录里留下文件。
 
 ## 仓库自带脚本（bin/、claude/ 与 install.sh）
 
