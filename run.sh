@@ -309,8 +309,19 @@ uv python install --default
 # ---------------------------------------------------------------------------
 log "nvm + latest Node.js LTS"
 export NVM_DIR="$HOME/.nvm"
-if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
-  NVM_VERSION="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | jq -r '.tag_name')"
+NVM_VERSION="$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | jq -r '.tag_name' || true)"
+NVM_CURRENT=""
+if [[ -s "$NVM_DIR/nvm.sh" ]]; then
+  # shellcheck disable=SC1090
+  NVM_CURRENT="v$(. "$NVM_DIR/nvm.sh" >/dev/null 2>&1; nvm --version 2>/dev/null || true)"
+fi
+if [[ -z "$NVM_VERSION" || "$NVM_VERSION" == null ]]; then
+  [[ -s "$NVM_DIR/nvm.sh" ]] || die "could not determine the latest nvm release"
+  warn "could not determine the latest nvm release; keeping nvm ${NVM_CURRENT}"
+elif [[ "$NVM_CURRENT" == "$NVM_VERSION" ]]; then
+  ok "nvm already ${NVM_VERSION}"
+else
+  # Official installer: fresh install, or upgrades an existing ~/.nvm in place.
   curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" | bash
 fi
 # shellcheck disable=SC1090
@@ -581,6 +592,21 @@ fi
 log "Alibaba Cloud CLI"
 # Official installer installs/updates the CLI and detects Linux architecture.
 curl -fsSL https://aliyuncli.alicdn.com/install.sh | sudo bash
+
+# ---------------------------------------------------------------------------
+# rclone (official installer: installs or upgrades to the latest stable)
+# ---------------------------------------------------------------------------
+log "rclone"
+# rclone.org/install.sh needs unzip to unpack the release archive.
+command -v unzip >/dev/null 2>&1 || pm_try unzip >/dev/null 2>&1 || true
+# The installer exits 3 when the latest version is already installed.
+rclone_rc=0
+curl -fsSL https://rclone.org/install.sh | sudo bash || rclone_rc=$?
+case "$rclone_rc" in
+  0) ok "rclone installed/updated" ;;
+  3) ok "rclone already at the latest version" ;;
+  *) warn "rclone installation failed (exit ${rclone_rc}; continuing)" ;;
+esac
 
 # ---------------------------------------------------------------------------
 # lazygit latest
@@ -915,6 +941,7 @@ run_ver npm npm --version
 run_ver docker docker --version
 run_ver kubectl kubectl version --client
 run_ver aliyun aliyun version
+run_ver rclone rclone version
 run_ver mysql mysql --version
 run_ver psql psql --version
 run_ver nvim nvim --version

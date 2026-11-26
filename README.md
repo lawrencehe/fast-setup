@@ -61,9 +61,25 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **Docker CE** with Buildx and Compose plugins
 - **kubectl** (latest stable)
 - **Alibaba Cloud CLI**
+- **[rclone](https://rclone.org)** (latest stable, official installer via `rclone.org/install.sh`)
 - **lazygit** (latest)
 - **Ghostty terminfo** (installed globally)
 - **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, `mosh`, and `tailscale`
+
+## Install policy
+
+Rules every step in `run.sh` follows (see `CLAUDE.md` for details):
+
+- **Both distro families** — every step works on Debian/Ubuntu (`apt`) and
+  the RHEL family (`dnf`/`yum`).
+- **Install / update / skip** — missing tools are installed, installed tools
+  are updated, and tools already at the latest version are skipped (pinned
+  versions such as Maven and the OpenJDK 21 line stay on their pin).
+- **Official installer first** — when a tool ships an official install script,
+  use it rather than distro packages or hand-rolled downloads.
+- **Native installer first** — when a tool ships a native/standalone installer,
+  use it rather than npm/pip; fall back to the package manager or npm only when
+  neither exists or works.
 
 ## Notes
 
