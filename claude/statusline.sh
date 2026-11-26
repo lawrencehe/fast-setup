@@ -19,7 +19,9 @@ src=(-); [ -r "$HOME/.claude.json" ] && src+=("$HOME/.claude.json")
 IFS=$'\x1f' read -r m mid d p f fr w wr acct < <(jq -nr '
   input as $s | (try input catch {}) as $c
   | [$s.model.display_name, $s.model.id, $s.workspace.current_dir,
-     $s.context_window.used_percentage,
+     # 新会话在第一次 API 回复前 used_percentage 是 null，但 context_window 已经有了：算 0%；
+     # 整个 context_window 都没有（旧版本、数据异常）才留空，显示 ?%
+     ($s.context_window | if . == null then null else (.used_percentage // 0) end),
      $s.rate_limits.five_hour.used_percentage, $s.rate_limits.five_hour.resets_at,
      $s.rate_limits.seven_day.used_percentage, $s.rate_limits.seven_day.resets_at,
      ($c.oauthAccount.emailAddress? // null)]
