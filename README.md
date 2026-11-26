@@ -160,12 +160,15 @@ there (then it leaves the setting alone and warns).
 Start a new Claude Code session and it shows one line:
 
 ```
-Fable 5.2 · my-project:main* · ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h · you@example.com
+Fable 5.2 · my-project:main*↑1 · ctx █▌          12% · 5h ▍           3% ↻2h13m · 7d ██▎         19% ↻3d4h · you@example.com
 ```
 
 - **Model**, then **repository:branch** — the name of the git repository the
-  current directory belongs to, and its branch (`*` when there are uncommitted
-  changes). Outside a git repository, the current directory's name is shown.
+  current directory belongs to, and its branch. After the branch: `*` when there
+  are uncommitted changes, `↑N` for commits not yet pushed and `↓N` for commits
+  not yet pulled (against the local copy of the upstream branch, i.e. as of the
+  last fetch/pull/push; no arrows when the branch has no upstream). Outside a
+  git repository, the current directory's name is shown.
 - **ctx** — context window usage of the current session
 - **5h / 7d** — subscription rate-limit usage. Claude Code only reports these
   after the first response of a session, so the last values are cached in
@@ -173,10 +176,9 @@ Fable 5.2 · my-project:main* · ctx █▌          12% · 5h ▍           3% 
   a value whose reset time has passed shows as 0%.
 - **↻** — time until that limit resets (`↻42m`, `↻2h13m`, `↻3d4h`); left out
   when the reset time is unknown or has already passed
-  The installer sets `"refreshInterval": 600` on the status line, so it re-runs
-  every 10 minutes and the countdown keeps moving while the session is idle
-  (it only runs the local script — no API calls, no tokens). A
-  `refreshInterval` you already set is left alone.
+  The installer sets `"refreshInterval": 60` on the status line, so it re-runs
+  every minute and the countdown and git state stay current while the session
+  is idle. A `refreshInterval` you already set is left alone.
 - When a value is unavailable (before the first response of a session, on a
   fresh install with no cache yet, or for API-key users who have no rate
   limits), its bar is empty and shows `?%` — ctx, 5h and 7d are always shown.
@@ -185,6 +187,9 @@ Fable 5.2 · my-project:main* · ctx █▌          12% · 5h ▍           3% 
 - Each bar is 12 characters wide on a dark track; the last cell uses ⅛-block
   characters (`▏▎▍▌▋▊▉`), so a bar has 96 steps of about 1%. Any non-zero usage
   shows at least one step. A bar turns red at 85% or more.
+- Everything is read locally — the session JSON Claude Code passes in,
+  `~/.claude.json` and the local git repository. It makes no network or API
+  calls and uses no tokens; one run takes about 20 ms (one `jq`, two `git`).
 
 ## Repository layout
 

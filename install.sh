@@ -83,11 +83,12 @@ post_mosh_sessions() {
 }
 
 # Point Claude Code at the status line, unless another statusLine is configured.
-# refreshInterval re-runs it every 10 minutes so the reset countdowns keep moving
-# while the session is idle (runs the local script only; no API calls or tokens).
-# A refreshInterval the user already set is left alone.
+# refreshInterval re-runs it every minute so the reset countdowns and git state
+# stay current while the session is idle (the script only reads local data: no
+# API calls, no tokens, ~20 ms per run). A refreshInterval the user set is left
+# alone; 600, the previous fast-setup default, is upgraded.
 post_statusline() {
-  local settings="${HOME}/.claude/settings.json" cmd="~/.claude/statusline.sh" current refresh=600
+  local settings="${HOME}/.claude/settings.json" cmd="~/.claude/statusline.sh" current refresh=60 old_refresh=600
   command -v jq >/dev/null 2>&1 || { warn "statusline: jq is missing; install jq (the status line needs it too), then re-run"; return 0; }
   [[ -s "$settings" ]] || echo '{}' >"$settings"
   if ! current="$(jq -r '.statusLine.command // empty' "$settings" 2>/dev/null)"; then
@@ -99,7 +100,7 @@ post_statusline() {
       "$settings" >"${settings}.tmp" && mv "${settings}.tmp" "$settings"
     ok "statusline configured in ${settings/#$HOME/\~} (takes effect in new sessions)"
   elif [[ "$current" == "$cmd" || "$current" == "${HOME}/.claude/statusline.sh" ]]; then
-    if [[ "$(jq '.statusLine | has("refreshInterval")' "$settings")" == false ]]; then
+    if [[ "$(jq -r '.statusLine.refreshInterval // "none"' "$settings")" =~ ^(none|${old_refresh})$ ]]; then
       jq --argjson r "$refresh" '.statusLine.refreshInterval = $r' "$settings" >"${settings}.tmp" \
         && mv "${settings}.tmp" "$settings"
       ok "statusline refreshInterval set to ${refresh}s in ${settings/#$HOME/\~} (takes effect in new sessions)"
