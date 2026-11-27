@@ -177,8 +177,11 @@ Fable 5.2 · my-project:main*↑1 · ctx █▌          12% · 5h ▍          
   the higher one wins; otherwise the later window wins). New and idle sessions
   therefore show the latest usage any session has seen. A value whose reset
   time has passed shows as 0%.
-- **↻** — time until that limit resets (`↻42m`, `↻2h13m`, `↻3d4h`); left out
-  when the reset time is unknown or has already passed
+- **↻** — time until that limit resets, rounded down: 5h shows minutes
+  (`↻4h52m`, `↻3h08m`, `↻39m`, `↻00m`), 7d shows whole hours (`↻6d23h`,
+  `↻20h`, `↻0h`). `↻--` means the window has already reset and the next one
+  starts with your next message, so its reset time is not known yet; left out
+  when there is no reset time at all
   The installer sets `"refreshInterval": 60` on the status line, so it re-runs
   every minute and the countdown and git state stay current while the session
   is idle. A `refreshInterval` you already set is left alone.

@@ -176,25 +176,32 @@ case "$wr" in ''|*[!0-9]*) ;; *) [ -n "$w" ] && [ "$wr" -le "$now" ] && w=0 ;; e
 # 和 /usage 一样向下取整（JSON 里是一位小数，如 1.9 → 1%）；ctx 仍在 bar 里四舍五入
 f=${f%%.*} w=${w%%.*}
 
-# 重置倒计时：until 时间戳 → R=" ↻42m" / " ↻08m" / " ↻2h05m" / " ↻3d4h"；没有时间或已过期时 R 为空
-# 分钟固定两位（08m、1h00m），每分钟跳动时长度不变；5h 倒计时只在 1h00m → 59m 时变短一次
+# 重置倒计时：until_reset 时间戳 单位(m|h) → R=" ↻…"，都向下取整（和 /usage 的百分比一样）
+#   m（5h 用）：4h52m、3h08m、39m、02m、00m —— 分钟固定两位，d/h 不补位
+#   h（7d 用，重置时间都是整点，不需要分钟）：6d23h、6d5h、1d0h、20h、0h
+# 重置时间已过：↻--（窗口已重置，下一条消息才开始新窗口，此时还不知道新的重置时间）
+# 没有重置时间（拿不到数据）：R 为空
 until_reset() {
   local t=$1 d
   R=''
   case "$t" in ''|*[!0-9]*) return ;; esac
   d=$(( t - now ))
-  [ "$d" -le 0 ] && return
-  # 不到一天：按分钟向上取整（剩 30 秒也显示 01m），再拆成小时和分钟
-  local m=$(( (d + 59) / 60 ))
-  if   [ "$m" -lt 60 ];    then printf -v d '%02dm' "$m"
-  elif [ "$m" -lt 1440 ];  then printf -v d '%dh%02dm' "$(( m / 60 ))" "$(( m % 60 ))"
-  else                          d="$(( m / 1440 ))d$(( m % 1440 / 60 ))h"; fi
+  if [ "$d" -le 0 ]; then d='--'
+  elif [ "$2" = h ]; then
+    local h=$(( d / 3600 ))
+    if [ "$h" -lt 24 ]; then d="${h}h"; else d="$(( h / 24 ))d$(( h % 24 ))h"; fi
+  else
+    local m=$(( d / 60 ))
+    if   [ "$m" -lt 60 ];   then printf -v d '%02dm' "$m"
+    elif [ "$m" -lt 1440 ]; then printf -v d '%dh%02dm' "$(( m / 60 ))" "$(( m % 60 ))"
+    else                         d="$(( m / 1440 ))d$(( m % 1440 / 60 ))h"; fi
+  fi
   col 245 "↻$d"; R=" $R"
 }
 
 bar ctx "$p" 73; add "$R"
-bar 5h "$f" 179; x=$R; until_reset "$fr"; add "$x$R"
-bar 7d "$w" 111; x=$R; until_reset "$wr"; add "$x$R"
+bar 5h "$f" 179; x=$R; until_reset "$fr" m; add "$x$R"
+bar 7d "$w" 111; x=$R; until_reset "$wr" h; add "$x$R"
 
 [ -n "$acct" ] && { col 245 "$acct"; add "$R"; }
 
