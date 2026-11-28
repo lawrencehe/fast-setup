@@ -336,6 +336,20 @@ write_managed_file() {
   ok "wrote ${path}"
 }
 
+# Debian/Ubuntu zsh does not read /etc/profile.d (RHEL's /etc/zprofile does),
+# so source a fast-setup profile.d file from /etc/zsh/zprofile as well.
+zsh_source_profile_d() {
+  local name="$1" line
+  [[ "$PM" == apt && -d /etc/zsh ]] || return 0
+  line="if [ -r /etc/profile.d/${name} ]; then . /etc/profile.d/${name}; fi  # Managed by fast-setup"
+  if grep -qxF "$line" /etc/zsh/zprofile 2>/dev/null; then
+    ok "/etc/zsh/zprofile already sources ${name}"
+  else
+    printf '%s\n' "$line" | sudo tee -a /etc/zsh/zprofile >/dev/null
+    ok "/etc/zsh/zprofile now sources ${name}"
+  fi
+}
+
 if [[ -n "$JAVA21_HOME" ]]; then
   # mvn sources /etc/mavenrc (then ~/.mavenrc, which can override it).
   write_managed_file /etc/mavenrc "# Managed by fast-setup (run.sh): run Maven on OpenJDK 21.
@@ -344,17 +358,7 @@ JAVA_HOME=\"${JAVA21_HOME}\""
   # Login shells: default JAVA_HOME to 21 only when the user has not set one.
   write_managed_file /etc/profile.d/fast-setup-java.sh "# Managed by fast-setup (run.sh): default JAVA_HOME to OpenJDK 21 if unset.
 [ -n \"\${JAVA_HOME:-}\" ] || export JAVA_HOME=\"${JAVA21_HOME}\""
-  # Debian/Ubuntu zsh does not read /etc/profile.d (RHEL's /etc/zprofile does),
-  # so source the same file from /etc/zsh/zprofile.
-  if [[ "$PM" == apt && -d /etc/zsh ]]; then
-    zsh_java_line='if [ -r /etc/profile.d/fast-setup-java.sh ]; then . /etc/profile.d/fast-setup-java.sh; fi  # Managed by fast-setup'
-    if grep -qxF "$zsh_java_line" /etc/zsh/zprofile 2>/dev/null; then
-      ok "/etc/zsh/zprofile already sources fast-setup-java.sh"
-    else
-      printf '%s\n' "$zsh_java_line" | sudo tee -a /etc/zsh/zprofile >/dev/null
-      ok "/etc/zsh/zprofile now sources fast-setup-java.sh"
-    fi
-  fi
+  zsh_source_profile_d fast-setup-java.sh
 fi
 
 # ---------------------------------------------------------------------------
@@ -445,6 +449,63 @@ fi
 nvm install --lts
 nvm alias default 'lts/*'
 nvm use default
+
+# ---------------------------------------------------------------------------
+# Rust (official rustup installer + stable toolchain)
+# ---------------------------------------------------------------------------
+log "Rust (rustup + stable toolchain)"
+export PATH="$HOME/.cargo/bin:$PATH"
+if command -v rustup >/dev/null 2>&1; then
+  # Updates rustup itself and the stable toolchain; prints "unchanged" when
+  # stable is already the latest release.
+  rustup update stable || warn "rustup update failed (continuing)"
+  rustup default >/dev/null 2>&1 || rustup default stable || warn "could not set the default Rust toolchain"
+else
+  # rustup adds ~/.cargo/env to ~/.profile, ~/.bashrc and ~/.zshenv.
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --profile default --default-toolchain stable \
+    || warn "Rust installation failed (continuing)"
+fi
+
+# ---------------------------------------------------------------------------
+# Go (latest stable, official tarball in /usr/local/go)
+#   No official install script exists, and distro packages lag behind, so
+#   follow go.dev/doc/install: replace /usr/local/go with the release tarball.
+# ---------------------------------------------------------------------------
+log "Go (latest stable)"
+GO_FILE=""; GO_SHA=""; GO_LATEST=""
+if GO_JSON="$(curl -fsSL 'https://go.dev/dl/?mode=json')"; then
+  read -r GO_LATEST GO_FILE GO_SHA < <(jq -r --arg arch "$ARCH" '
+    [.[] | select(.stable)][0] as $r
+    | ($r.files[] | select(.os == "linux" and .arch == $arch and .kind == "archive"))
+    | "\($r.version) \(.filename) \(.sha256)"' <<<"$GO_JSON" 2>/dev/null) || true
+fi
+GO_CURRENT="$(/usr/local/go/bin/go env GOVERSION 2>/dev/null || true)"
+if [[ -z "$GO_LATEST" || -z "$GO_FILE" || -z "$GO_SHA" ]]; then
+  warn "could not determine the latest Go release; keeping ${GO_CURRENT:-no Go}"
+elif [[ "$GO_CURRENT" == "$GO_LATEST" ]]; then
+  ok "Go already ${GO_LATEST}"
+else
+  tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
+  if curl -fL "https://go.dev/dl/${GO_FILE}" -o "$tmp/go.tgz" \
+    && echo "${GO_SHA}  $tmp/go.tgz" | sha256sum --check --quiet; then
+    sudo rm -rf /usr/local/go
+    sudo tar -C /usr/local -xzf "$tmp/go.tgz"
+    ok "Go ${GO_LATEST} installed${GO_CURRENT:+ (was ${GO_CURRENT})}"
+  else
+    warn "Go ${GO_LATEST} download/verification failed (continuing)"
+  fi
+  rm -rf "$tmp"
+fi
+if [[ -x /usr/local/go/bin/go ]]; then
+  # Put /usr/local/go/bin first so it wins over a distro golang in /usr/bin,
+  # and add `go install` binaries (GOPATH/bin) at the end.
+  write_managed_file /etc/profile.d/fast-setup-go.sh '# Managed by fast-setup (run.sh): Go in /usr/local/go and `go install` binaries.
+case ":$PATH:" in *:/usr/local/go/bin:*) ;; *) export PATH="/usr/local/go/bin:$PATH" ;; esac
+case ":$PATH:" in *":${GOPATH:-$HOME/go}/bin:"*) ;; *) export PATH="$PATH:${GOPATH:-$HOME/go}/bin" ;; esac'
+  zsh_source_profile_d fast-setup-go.sh
+  export PATH="/usr/local/go/bin:$PATH"
+fi
 
 # ---------------------------------------------------------------------------
 # pi coding agent (native managed installer)
@@ -864,10 +925,10 @@ mkdir -p "${TARGET_HOME}/.local/bin" "$STATE_DIR"
 cat >"$USER_UPDATER" <<'EOF'
 #!/usr/bin/env bash
 # Auto-update user CLI tools managed by fast-setup:
-# t3, paseo, codex, claude, agy, pi
+# t3, paseo, codex, claude, agy, pi, rustup (Rust stable)
 set -uo pipefail
 
-export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="$HOME/.local/bin:$HOME/.pi/agent/bin:$HOME/.cargo/bin:/usr/local/bin:/usr/bin:/bin"
 export NVM_DIR="$HOME/.nvm"
 if [[ -s "$NVM_DIR/nvm.sh" ]]; then
   # shellcheck disable=SC1090
@@ -926,6 +987,10 @@ update_agy() {
   agy update || (curl -fsSL https://antigravity.google/cli/install.sh | bash)
 }
 
+update_rust() {
+  rustup update stable
+}
+
 update_pi() {
   if pi update; then
     return 0
@@ -952,6 +1017,7 @@ command -v codex >/dev/null 2>&1  && run_update "codex" update_codex
 command -v claude >/dev/null 2>&1 && run_update "claude" update_claude
 command -v agy >/dev/null 2>&1    && run_update "agy" update_agy
 command -v pi >/dev/null 2>&1     && run_update "pi" update_pi
+command -v rustup >/dev/null 2>&1 && run_update "rust" update_rust
 log "=== fast-setup auto-update finished ==="
 EOF
 chmod 0755 "$USER_UPDATER"
@@ -1069,6 +1135,9 @@ run_ver uv uv --version
 run_ver python3 python3 --version
 run_ver node node --version
 run_ver npm npm --version
+run_ver rustc rustc --version
+run_ver cargo cargo --version
+run_ver go go version
 run_ver docker docker --version
 run_ver kubectl kubectl version --client
 run_ver aliyun aliyun version

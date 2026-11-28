@@ -59,6 +59,8 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   When the pinned version changes, the previous version `/opt/maven` pointed to is removed
 - **uv** and the latest stable Python (managed by uv)
 - **nvm** and the latest Node.js LTS
+- **Rust** — `rustup` (official installer via `sh.rustup.rs`) with the latest stable toolchain (`rustc`, `cargo`, `clippy`, `rustfmt`); updated with `rustup update stable`
+- **Go** — latest stable release from `go.dev/dl` (SHA-256 verified), installed to `/usr/local/go`; `/etc/profile.d/fast-setup-go.sh` puts `/usr/local/go/bin` and `$GOPATH/bin` (`~/go/bin`) on `PATH`
 - **[pi](https://pi.dev)** coding agent (native managed installer via `pi.dev/install.sh`)
 - **[T3 Code](https://t3.codes)** (`t3`, native standalone installer via `t3.codes/install.sh`)
 - **[Paseo](https://paseo.sh)** (`paseo`, official CLI `@getpaseo/cli` via nvm-managed Node.js)
@@ -76,7 +78,7 @@ On RHEL-family systems the script automatically enables **EPEL** (and
 - **Ghostty terminfo** (installed globally)
 - **fast-setup scripts** — `mosh-sessions` and the Claude Code status line, via
   [`install.sh`](install.sh) (see [below](#fast-setup-scripts))
-- **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, `mosh`, and `tailscale`
+- **Daily auto-update (Linux system cron)** — installs `cron`/`cronie`, configures `/etc/cron.d/fast-setup-auto-update` to run daily at `03:00` Singapore time (`Asia/Singapore`, UTC+8; automatically converted to the server's local timezone) to update `t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, Rust (`rustup`), `mosh`, and `tailscale`
 
 ## Install policy
 
@@ -116,7 +118,7 @@ Rules every step in `run.sh` follows (see `CLAUDE.md` for details):
   `03:00` Singapore time (`Asia/Singapore`, UTC+8), automatically converted to
   the host's local timezone for compatibility with both Debian `cron` and RHEL
   `cronie`:
-  - User tools (`t3`, `paseo`, `codex`, `claude`, `agy`, `pi`) are updated by
+  - User tools (`t3`, `paseo`, `codex`, `claude`, `agy`, `pi`, `rustup` + Rust stable) are updated by
     `~/.local/bin/fast-setup-update` (logs in `~/.local/state/fast-setup/auto-update.log`).
     You can also run `fast-setup-update` manually at any time.
   - `mosh` and `tailscale` are updated by `/usr/local/sbin/fast-setup-pkg-update`
