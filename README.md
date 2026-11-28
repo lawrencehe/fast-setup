@@ -159,8 +159,10 @@ curl -fsSL https://raw.githubusercontent.com/lawrencehe/fast-setup/main/bin/mosh
 
 ### mosh-sessions
 
-mosh 会话巡检：列出运行中的 `mosh-server` 进程、其 UDP socket，并标出当前会话；
-装了 `tcpdump` 时会短暂抓包探测客户端来源 IP。需要 `lsof`，部分信息需要 `sudo`。
+Inspects mosh sessions: lists running `mosh-server` processes and their UDP
+sockets, and marks the current session. If `tcpdump` is installed, it briefly
+captures packets to detect each client's source IP. Requires `lsof`; some
+details need `sudo`.
 
 ### Claude Code status line
 
