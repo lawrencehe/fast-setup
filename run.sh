@@ -285,6 +285,35 @@ case "$PM" in
     fi
     ;;
 esac
+# Drop alternatives entries under /usr/lib/jvm whose target no longer exists.
+# RHEL 21.x updates can leave the old javac registered at the same priority,
+# and `alternatives` may stay on that dead path. Entries that still exist,
+# and so the user's choice of global java/javac, are never touched.
+clean_stale_java_alternatives() {
+  local tool dir name path removed=0
+  case "$PM" in
+    apt) tool=update-alternatives; dir=/var/lib/dpkg/alternatives ;;
+    *)   tool=alternatives;        dir=/var/lib/alternatives ;;
+  esac
+  if ! command -v "$tool" >/dev/null 2>&1 || [[ ! -d "$dir" ]]; then
+    return 0
+  fi
+  for name in "$dir"/*; do
+    name="${name##*/}"
+    while read -r path; do
+      [[ "$path" == /usr/lib/jvm/* && ! -e "$path" ]] || continue
+      if sudo "$tool" --remove "$name" "$path" >/dev/null 2>&1; then
+        ok "removed stale alternative ${name} -> ${path}"
+        removed=1
+      else
+        warn "could not remove stale alternative ${name} -> ${path}"
+      fi
+    done < <(LC_ALL=C "$tool" --display "$name" 2>/dev/null | awk '/^\/.* - (family|priority) /{print $1}')
+  done
+  [[ "$removed" == 1 ]] || ok "no stale Java alternatives"
+}
+clean_stale_java_alternatives
+
 if [[ -n "$JAVA21_HOME" && ! -x "$JAVA21_HOME/bin/javac" ]]; then
   warn "JDK 21 installed but ${JAVA21_HOME}/bin/javac not found; not pinning JAVA_HOME."
   JAVA21_HOME=""

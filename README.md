@@ -50,6 +50,8 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   - `/etc/mavenrc` sets `JAVA_HOME` so `mvn` always runs on 21 (override per user in `~/.mavenrc`)
   - `/etc/profile.d/fast-setup-java.sh` sets `JAVA_HOME` to 21 for login shells, only when it is not already set
     (on Debian/Ubuntu, `/etc/zsh/zprofile` is given one line that sources it, since zsh there skips `/etc/profile.d`)
+  - stale `alternatives` entries under `/usr/lib/jvm` (targets removed by a 21.x update) are cleaned up,
+    so e.g. `javac` does not stay on a deleted JDK; entries that still exist are never changed
   - `JAVA_HOME` is the distro's version-less path (`/usr/lib/jvm/java-21-openjdk` on RHEL,
     `/usr/lib/jvm/java-21-openjdk-<arch>` on Debian/Ubuntu), so it survives 21.x updates
 - **Apache Maven 3.9.9** — downloaded from Maven Central and SHA-512 verified, installed as
