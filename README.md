@@ -45,8 +45,16 @@ On RHEL-family systems the script automatically enables **EPEL** (and
   and a build toolchain (`build-essential` or `gcc`/`gcc-c++`/`make`)
 - **zsh** — installed if missing, upgraded when an update is available, otherwise left as-is
 - **Database clients** — MySQL/MariaDB client and PostgreSQL client
-- **OpenJDK 21** — pinned to the 21 line (latest 21.x); no other major version is installed if 21 is unavailable
-- **Apache Maven 3.9.9** — installed under `/opt`, symlinked to `/usr/local/bin/mvn`
+- **OpenJDK 21** — pinned to the 21 line (latest 21.x); no other major version is installed if 21 is unavailable.
+  The global `java`/`javac` alternatives are left as they are; instead:
+  - `/etc/mavenrc` sets `JAVA_HOME` so `mvn` always runs on 21 (override per user in `~/.mavenrc`)
+  - `/etc/profile.d/fast-setup-java.sh` sets `JAVA_HOME` to 21 for login shells, only when it is not already set
+    (on Debian/Ubuntu, `/etc/zsh/zprofile` is given one line that sources it, since zsh there skips `/etc/profile.d`)
+  - `JAVA_HOME` is the distro's version-less path (`/usr/lib/jvm/java-21-openjdk` on RHEL,
+    `/usr/lib/jvm/java-21-openjdk-<arch>` on Debian/Ubuntu), so it survives 21.x updates
+- **Apache Maven 3.9.9** — downloaded from Maven Central and SHA-512 verified, installed as
+  `/opt/apache-maven-3.9.9`, with `/opt/maven` → that directory and `/usr/local/bin/mvn` → `/opt/maven/bin/mvn`.
+  When the pinned version changes, the previous version `/opt/maven` pointed to is removed
 - **uv** and the latest stable Python (managed by uv)
 - **nvm** and the latest Node.js LTS
 - **[pi](https://pi.dev)** coding agent (native managed installer via `pi.dev/install.sh`)

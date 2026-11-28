@@ -265,30 +265,111 @@ esac
 # Java (OpenJDK 21 — stay on the 21 line, latest 21.x only)
 # ---------------------------------------------------------------------------
 log "Java (OpenJDK 21)"
+# JAVA21_HOME is the distro's version-less path for the 21 line, so it keeps
+# working across 21.x updates. The global `java`/`javac` alternatives are left
+# alone; only Maven (/etc/mavenrc) and an unset JAVA_HOME are pointed at 21.
+JAVA21_HOME=""
 case "$PM" in
   apt)
-    pm_install openjdk-21-jdk || warn "openjdk-21-jdk unavailable; skipping Java (no other major version installed)."
+    if pm_install openjdk-21-jdk; then
+      JAVA21_HOME="/usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture)"
+    else
+      warn "openjdk-21-jdk unavailable; skipping Java (no other major version installed)."
+    fi
     ;;
   dnf|yum)
-    pm_install java-21-openjdk-devel || warn "java-21-openjdk-devel unavailable; skipping Java (no other major version installed)."
+    if pm_install java-21-openjdk-devel; then
+      JAVA21_HOME="/usr/lib/jvm/java-21-openjdk"
+    else
+      warn "java-21-openjdk-devel unavailable; skipping Java (no other major version installed)."
+    fi
     ;;
 esac
+if [[ -n "$JAVA21_HOME" && ! -x "$JAVA21_HOME/bin/javac" ]]; then
+  warn "JDK 21 installed but ${JAVA21_HOME}/bin/javac not found; not pinning JAVA_HOME."
+  JAVA21_HOME=""
+fi
+
+# Write a root-owned config file only when its content differs. Files without
+# the fast-setup marker belong to the user and are never overwritten.
+write_managed_file() {
+  local path="$1" content="$2"
+  if [[ -e "$path" ]] && ! grep -q 'Managed by fast-setup' "$path" 2>/dev/null; then
+    warn "${path} exists and is not managed by fast-setup; leaving it unchanged."
+    return 0
+  fi
+  if [[ -f "$path" && "$(cat "$path")" == "$content" ]]; then
+    ok "${path} already up to date"
+    return 0
+  fi
+  printf '%s\n' "$content" | sudo tee "$path" >/dev/null
+  sudo chmod 644 "$path"
+  ok "wrote ${path}"
+}
+
+if [[ -n "$JAVA21_HOME" ]]; then
+  # mvn sources /etc/mavenrc (then ~/.mavenrc, which can override it).
+  write_managed_file /etc/mavenrc "# Managed by fast-setup (run.sh): run Maven on OpenJDK 21.
+# Override per user in ~/.mavenrc.
+JAVA_HOME=\"${JAVA21_HOME}\""
+  # Login shells: default JAVA_HOME to 21 only when the user has not set one.
+  write_managed_file /etc/profile.d/fast-setup-java.sh "# Managed by fast-setup (run.sh): default JAVA_HOME to OpenJDK 21 if unset.
+[ -n \"\${JAVA_HOME:-}\" ] || export JAVA_HOME=\"${JAVA21_HOME}\""
+  # Debian/Ubuntu zsh does not read /etc/profile.d (RHEL's /etc/zprofile does),
+  # so source the same file from /etc/zsh/zprofile.
+  if [[ "$PM" == apt && -d /etc/zsh ]]; then
+    zsh_java_line='if [ -r /etc/profile.d/fast-setup-java.sh ]; then . /etc/profile.d/fast-setup-java.sh; fi  # Managed by fast-setup'
+    if grep -qxF "$zsh_java_line" /etc/zsh/zprofile 2>/dev/null; then
+      ok "/etc/zsh/zprofile already sources fast-setup-java.sh"
+    else
+      printf '%s\n' "$zsh_java_line" | sudo tee -a /etc/zsh/zprofile >/dev/null
+      ok "/etc/zsh/zprofile now sources fast-setup-java.sh"
+    fi
+  fi
+fi
 
 # ---------------------------------------------------------------------------
-# Maven
+# Maven (pinned to MAVEN_VERSION)
+#   /opt/apache-maven-<ver>   the install
+#   /opt/maven                -> /opt/apache-maven-<ver>
+#   /usr/local/bin/mvn        -> /opt/maven/bin/mvn
 # ---------------------------------------------------------------------------
 log "Maven ${MAVEN_VERSION}"
-CURRENT_MAVEN="$(mvn -version 2>/dev/null | head -1 | awk '{print $3}' || true)"
-if [[ "$CURRENT_MAVEN" != "$MAVEN_VERSION" ]]; then
-  tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
-  curl -fL "https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz" -o "$tmp/maven.tgz"
-  sudo rm -rf "/opt/apache-maven-${MAVEN_VERSION}"
-  sudo tar -xzf "$tmp/maven.tgz" -C /opt
-  sudo ln -sfn "/opt/apache-maven-${MAVEN_VERSION}" /opt/maven
-  sudo ln -sfn /opt/maven/bin/mvn /usr/local/bin/mvn
-  rm -rf "$tmp"
-else
+MAVEN_DIR="/opt/apache-maven-${MAVEN_VERSION}"
+PREV_MAVEN_DIR="$(readlink /opt/maven 2>/dev/null || true)"
+# Checked on disk rather than via `mvn -version`, which needs a working Java.
+if [[ -x "$MAVEN_DIR/bin/mvn" && "$PREV_MAVEN_DIR" == "$MAVEN_DIR" \
+      && "$(readlink /usr/local/bin/mvn 2>/dev/null || true)" == /opt/maven/bin/mvn ]]; then
   ok "Maven already ${MAVEN_VERSION}"
+else
+  maven_ready=1
+  if [[ ! -x "$MAVEN_DIR/bin/mvn" ]]; then
+    maven_ready=0
+    tmp="$(mktemp -d /tmp/fast-setup.XXXXXX)"
+    maven_url="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${MAVEN_VERSION}/apache-maven-${MAVEN_VERSION}-bin.tar.gz"
+    if curl -fsSL "$maven_url" -o "$tmp/maven.tgz" \
+        && curl -fsSL "${maven_url}.sha512" -o "$tmp/maven.tgz.sha512"; then
+      if printf '%s  %s\n' "$(awk '{print $1; exit}' "$tmp/maven.tgz.sha512")" "$tmp/maven.tgz" | sha512sum -c --status; then
+        sudo rm -rf "$MAVEN_DIR"
+        sudo tar --no-same-owner -xzf "$tmp/maven.tgz" -C /opt && maven_ready=1
+      else
+        warn "Maven ${MAVEN_VERSION} download failed its SHA-512 check; not installing."
+      fi
+    else
+      warn "could not download Maven ${MAVEN_VERSION} (continuing)"
+    fi
+    rm -rf "$tmp"
+  fi
+  if [[ "$maven_ready" == 1 ]]; then
+    sudo ln -sfn "$MAVEN_DIR" /opt/maven
+    sudo ln -sfn /opt/maven/bin/mvn /usr/local/bin/mvn
+    # Remove the version /opt/maven pointed to before (one we installed);
+    # other /opt/apache-maven-* directories are left alone.
+    if [[ "$PREV_MAVEN_DIR" == /opt/apache-maven-* && "$PREV_MAVEN_DIR" != "$MAVEN_DIR" ]]; then
+      sudo rm -rf "$PREV_MAVEN_DIR"
+    fi
+    ok "Maven ${MAVEN_VERSION} installed"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
